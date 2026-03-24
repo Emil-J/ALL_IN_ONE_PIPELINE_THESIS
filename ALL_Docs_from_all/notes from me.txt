@@ -1,0 +1,1227 @@
+What I did so far was the following:
+Reorganized with better data the QGIS satellite images plus the open street map data.
+Installed VS 2026 and the vcpkg to use build an exe of the osmium software so i can use the osmium software to split .osm.pbf files into keys/subkeys for a better control of the layers in QGIS.
+
+INSTALLATION TO OBTAIN .OSM.PBF. SUBKEYS of WATERWAYS in Powershell
+
+Installation procedure to obtain .osm.pbf split of waterways.
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows
+
+PS C:\Windows\system32> cd C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-filter denmark-260204.osm.pbf w/waterway -o waterways.osm.pbf
+>>
+[======================================================================] 100%
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-count waterways.osm.pbf waterway
+>>
+[======================================================================] 100%
+162503  "waterway"
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-count waterways.osm.pbf
+>>
+[======================================================================] 100%
+162503  "waterway"
+42724   "tunnel"
+40877   "layer"
+30391   "name"
+4343    "source"
+3800    "intermittent"
+3122    "boat"
+2792    "width"
+1612    "canoe"
+1279    "oneway"
+657     "open_water"
+550     "alt_name"
+442     "ford"
+296     "wikidata"
+257     "bredde"
+244     "navigation"
+241     "website"
+237     "canoe:conditional"
+231     "source:name"
+206     "name:de"
+173     "globalid"
+170     "access"
+150     "wikipedia"
+147     "flow_direction"
+144     "fee"
+142     "url"
+136     "seamark:type"
+120     "created_by"
+118     "note"
+110     "fixme"
+94      "fotodato"
+89      "motorboat"
+87      "surface"
+84      "name:etymology:wikidata"
+74      "barrier"
+70      "floating"
+67      "man_made"
+61      "description"
+56      "leisure"
+56      "loc_name"
+43      "seamark:topmark:shape"
+41      "natural"
+39      "tidal"
+38      "maxspeed"
+35      "seamark:buoy_safe_water:colour"
+35      "seamark:buoy_safe_water:colour_pattern"
+35      "seamark:buoy_safe_water:shape"
+35      "seamark:topmark:colour"
+34      "covered"
+34      "ship"
+32      "seamark:light:character"
+32      "seamark:light:colour"
+31      "seamark:light:period"
+29      "source:alt_name"
+28      "seasonal"
+27      "name:da"
+26      "source:loc_name"
+25      "dock"
+23      "culvert"
+23      "seamark:name"
+22      "seamark:bridge:category"
+21      "substance"
+20      "name:frr"
+20      "seamark:small_craft_facility:category"
+18      "seamark:bridge:clearance_height"
+18      "wikimedia_commons"
+15      "heritage"
+15      "operator"
+15      "source:heritage"
+11      "amenity"
+11      "boat:conditional"
+11      "sailboat"
+11      "start_date"
+10      "historic"
+10      "lock"
+10      "official_name"
+9       "defensive_works"
+9       "location"
+9       "rapids"
+8       "bicycle"
+8       "bridge"
+8       "foot"
+8       "length"
+8       "maxheight:physical"
+8       "seamark:bridge:clearance_width"
+8       "seamark:buoy_special_purpose:colour"
+8       "seamark:buoy_special_purpose:shape"
+8       "seamark:lnam"
+7       "check_date"
+7       "motor_vehicle"
+7       "name:en"
+7       "seamark:bridge:vertical_datum"
+7       "seamark:gate:category"
+7       "seamark:information"
+7       "seamark:obstruction:category"
+6       "ele"
+6       "height"
+6       "manhole"
+6       "material"
+6       "standup_paddleboard"
+6       "whitewater:section_grade"
+5       "drinking_water"
+5       "informal"
+5       "level"
+5       "motorboat:conditional"
+5       "seamark:sea_area:category"
+5       "source:official_name"
+5       "tourism"
+5       "waterway:former"
+4       "building"
+4       "mapillary"
+4       "portage"
+4       "source:date"
+4       "source:tunnel"
+4       "underground"
+4       "uuid"
+3       "artwork_type"
+3       "craft"
+3       "horse"
+3       "inlet"
+3       "noname"
+3       "seamark:buoy_lateral:category"
+3       "seamark:buoy_lateral:colour"
+3       "seamark:buoy_lateral:shape"
+3       "seamark:buoy_lateral:system"
+2       "area"
+2       "artist_name"
+2       "attraction"
+2       "construction"
+2       "cutting"
+2       "depth"
+2       "diameter"
+2       "drinking_water:legal"
+2       "fishing"
+2       "koes_id"
+2       "lock_name"
+2       "noexit"
+2       "outlet"
+2       "salt"
+2       "seamark:bridge:clearance_height_closed"
+2       "seamark:radar_reflector"
+2       "seamark:radar_transponder:category"
+2       "source:description"
+2       "standup_paddleboard_rental"
+2       "tracktype"
+2       "waypoint"
+1       "FIXME"
+1       "artist:wikidata"
+1       "artist:wikipedia"
+1       "boatyard:type"
+1       "bridge:name"
+1       "contact:website"
+1       "ditch"
+1       "ferry"
+1       "fireplace"
+1       "highway"
+1       "jetski"
+1       "kayak"
+1       "leaf_type"
+1       "name:cs"
+1       "name:em"
+1       "name:et"
+1       "name:fi"
+1       "name:is"
+1       "name:nl"
+1       "name:pl"
+1       "name:sk"
+1       "name:sv"
+1       "public_transport"
+1       "pumping_station"
+1       "railway"
+1       "ref:DK:cvr"
+1       "ref:DK:cvr:pnummer"
+1       "seamark:pilot_boarding:category"
+1       "seamark:pilot_boarding:channel"
+1       "seamark:radar_transponder:group"
+1       "seamark:radar_transponder:range"
+1       "shop"
+1       "source:jetski"
+1       "source:url"
+1       "type"
+1       "water_characteristic"
+1       "wheelchair"
+1       "wikipedia:en"
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-count waterways.osm.pbf | Select-String "^waterway="
+>>
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-count waterways.osm.pbf | Select-String "^waterway="
+>>
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-filter waterways.osm.pbf w/waterway=river --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=stream --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=canal --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=ditch --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=drain --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=tidal_channel --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=fairway --count
+>> osmium tags-filter waterways.osm.pbf w/waterway=rapids --count
+>>
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+Error parsing command line: unrecognised option '--count'
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> $waterways = @(
+>>   "river",
+>>   "stream",
+>>   "canal",
+>>   "ditch",
+>>   "drain",
+>>   "tidal_channel",
+>>   "fairway",
+>>   "rapids",
+>>   "brook",
+>>   "wadi"
+>> )
+>>
+>> foreach ($w in $waterways) {
+>>     Write-Host "Processing waterway=$w"
+>>
+>>     osmium tags-filter waterways.osm.pbf "w/waterway=$w" --count
+>>
+>>     osmium tags-filter waterways.osm.pbf "w/waterway=$w" `
+>>         -o "tmp_$w.osm.pbf"
+>>
+>>     osmium export "tmp_$w.osm.pbf" `
+>>         -o "waterway_$w.gpkg"
+>>
+>>     Remove-Item "tmp_$w.osm.pbf"
+>> }
+>>
+Processing waterway=river
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=stream
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=canal
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=ditch
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=drain
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=tidal_channel
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=fairway
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=rapids
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=brook
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+Processing waterway=wadi
+Error parsing command line: unrecognised option '--count'
+[======================================================================] 100%
+Set output format with --output-format or -f to 'geojson', 'geojsonseq', 'pg', or 'text'.
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium tags-filter waterways.osm.pbf w/waterway=river  -o waterways_river.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=stream -o waterways_stream.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=canal  -o waterways_canal.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=ditch  -o waterways_ditch.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=drain  -o waterways_drain.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=tidal_channel -o waterways_tidal_channel.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=fairway -o waterways_fairway.osm.pbf
+>> osmium tags-filter waterways.osm.pbf w/waterway=rapids  -o waterways_rapids.osm.pbf
+>>
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> ogr2ogr --version
+>>
+ogr2ogr : The term 'ogr2ogr' is not recognized as the name of a cmdlet, function, script file, or operable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:1
++ ogr2ogr --version
++ ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (ogr2ogr:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>
+
+
+
+PROCESS OF CONVERTING .OSM.PBF INTO GEOJSON in Powershell
+
+PS C:\Windows\system32> cd C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract> osmium export waterways_river.osm.pbf -f geojson -o waterways_river.geojson
+>> osmium export waterways_stream.osm.pbf -f geojson -o waterways_stream.geojson
+>> osmium export waterways_canal.osm.pbf -f geojson -o waterways_canal.geojson
+>> osmium export waterways_ditch.osm.pbf -f geojson -o waterways_ditch.geojson
+>> osmium export waterways_drain.osm.pbf -f geojson -o waterways_drain.geojson
+>> osmium export waterways_tidal_channel.osm.pbf -f geojson -o waterways_tidal_channel.geojson
+>> osmium export waterways_fairway.osm.pbf -f geojson -o waterways_fairway.geojson
+>> osmium export waterways_rapids.osm.pbf -f geojson -o waterways_rapids.geojson
+>>
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+[======================================================================] 100%
+PS C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>
+
+
+PROCESS OF CONVERTING GEOJSON TO GPKG in OSGEO4W Shell
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_river.gpkg waterways_river.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_stream.gpkg waterways_stream.geojson
+Warning 1: Field 'fixme' already exists. Renaming it as 'fixme2'
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_canal.gpkg waterways_canal.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_ditch.gpkg waterways_ditch.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_drain.gpkg waterways_drain.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_tidal_channel.gpkg waterways_tidal_channel.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_fairway.gpkg waterways_fairway.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_rapids.gpkg waterways_rapids.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_river.gpkg waterways_river.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_stream.gpkg waterways_stream.geojson
+Warning 1: Field 'fixme' already exists. Renaming it as 'fixme2'
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_canal.gpkg waterways_canal.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_ditch.gpkg waterways_ditch.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_drain.gpkg waterways_drain.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_tidal_channel.gpkg waterways_tidal_channel.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_fairway.gpkg waterways_fairway.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>ogr2ogr -f GPKG waterways_rapids.gpkg waterways_rapids.geojson
+
+C:\Users\emilj\Documents\Thesis\Thesis\OSMIUM_Extract>
+
+DID THE SAME FOR ROADS.
+
+
+Currently I am increasing the width of each road and will do the same for each waterway.
+As I am manually analyzing each road category in OSM I am thinking about a way of having more classes for each segment. OFFROAD, STREET ROADS, MOTORWAY, FOOTWAY. For the model to segment what he sees in a better fashion and then also to create a possibility for this to be used to deduce the region of the locaton a bit more since there is more differentiation that the model can work with. This is just an idea.
+
+
+
+For this to be possible I will write down all what I analyze based on each category in OSM as it seems to be very valuable to write down:
+
+
+roads_unclassified.osm_lines 	Unclassified category of roads, they include cities and country roads along with sometimes tracks or paths for agriculture or hiking. Can't really use this class for anything since it isn't organized. Label ROAD
+roads_track.osm_lines	Class for agriculture motorized or forest hiking/motorized tracks, i think it should be labeled for OFFROAD, since it is always seen this class in country/forest regions and most of the time they are gravel/dirt roads which are highly distinguishable visually.
+roads_residential.osm_lines	Class for street roads in residential areas. Label ROAD
+roads_motorway.osm_lines	Class for Motor Way roads. Label ROAD
+roads_footway.osm_lines	Class for foot paths for pedestrians in cities/towns/villages. Very inconsistent category, graveyard paths and residential paths around apartments are the most classified ones. Label ROAD
+roads_cycleway.osm_lines	Class for cyclist roads. Unusable, since it is always next to roads and wide as a car, model would be too confused and would misclassify. Label ROAD
+roads_path.osm_lines	Class for hiking paths, walking paths, motorized offroad paths, offroad cycling paths. Label OFFROAD
+roads_primary.osm_lines	Class for primary roads? Label ROAD
+roads_pedestrian.osm_lines	Class for pedestrian roads in cities, although Denmark sometimes still has cars there. So, Label ROAD
+roads_living_street.osm_lines	Class for roads, living street, apartment areas, not sure. Label ROAD
+roads_secondary.osm_lines	Class for secondary motorway roads? Label ROAD
+roads_service.osm_lines	Class for service roads in cities or roads from main roads to residential houses. Label ROAD
+roads_tertiary.osm_lines	Class for teritiary motorway roads? Label ROAD
+roads_raceway.osm_lines	Class for raceway roads. Label ROAD.
+
+
+
+
+
+DATA EXTRACTION COORDS AND SETTINGS FOR MODEL TRAINING:
+Because of Satellite Image restrictions active from December 2025, use of Aerial photos provided by Danish governement is used. The images from this data source are most of the time during early spring, autumn or early winter as it is evident in the discoloration of trees and vegetation species. The machine learning model will work only on this setting of seasons.
+
+Sonderborg
+•	EPSG:25832: 551289.9633339343 6086071.460619696
+•	EPSG:4326: 54.91900425701122 9.800197615535525
+•	Magnifier: 100%
+•	Scale: 1:20215
+•	Rotation: -15,0
+Skjern/Tarm
+•	EPSG:25832: 470177.92299240263 6198526.314547542
+•	EPSG:4326: 55.93120931683378 8.522680900405549
+•	Magnifier: 100%
+•	Scale: 1:20215
+•	Rotation: 0,0
+Horsens
+•	EPSG:25832: 550634.8548439423 6190393.841104836
+•	EPSG:4326: 55.856404783281086 9.808888111028242
+•	Magnifier: 100%
+•	Scale: 1:20215
+•	Rotation: 0,0
+Hadsund
+•	EPSG:25832: 568538.341048542 6285622.806964695
+•	EPSG:4326: 56.70962098630543 10.119565851269552
+•	Magnifier: 100%
+•	Scale: 1:20215
+•	Rotation: -60,0
+Voersa
+•	EPSG:25832: 589462.6364471749 6341054.425726866
+•	EPSG:4326: 57.203891109888914 10.48086314542671
+•	Magnifier: 100%
+•	Scale: 1:5395
+•	Rotation: -25,0
+Gudenå River 1
+•	EPSG:25832: 573085.3327581568 6259273.565811044
+•	EPSG:4326: 56.47225903685063 10.18638403793682
+•	Magnifier: 100%
+•	Scale: 1:7186
+•	Rotation: 15,0
+Gudenå River 2
+•	EPSG:25832: 571262.2093482267 6258308.690737346
+•	EPSG:4326: 56.46387129868747 10.156532916482874
+•	Magnifier: 100%
+•	Scale: 1:7186
+•	Rotation: 15,0
+Gudenå River 3 (summer time aerial images)
+•	EPSG:25832: 565507.8428754266 6258195.379942607
+•	EPSG:4326: 56.463688142084706 10.063134336547343
+•	Magnifier: 100%
+•	Scale: 1:7186
+•	Rotation: 15,0
+Gudenå River 4
+•	EPSG:25832: 560094.2804752714 6256501.494409082
+•	EPSG:4326: 56.44919313742348 9.97490220366621
+•	Magnifier: 100%
+•	Scale: 1:7186
+•	Rotation: 45,0
+Gudenå River 5
+•	EPSG:25832: 556438.9148985858 6249647.201102579
+•	EPSG:4326: 56.388071262729106 9.914132553949704
+•	Magnifier: 100%
+•	Scale: 1:3593
+•	Rotation: 95,0
+Gudenå River 6
+•	EPSG:25832: 558427.9403033052 6256140.727736359
+•	EPSG:4326: 56.44616169014944 9.947792930193657
+•	Magnifier: 100%
+•	Scale: 1:2395
+•	Rotation: -15,0
+Gudenå River 7
+•	EPSG:25832: 557246.3862164045 6256559.77595387
+•	EPSG:4326: 56.45007090043235 9.928720962679908
+•	Magnifier: 100%
+•	Scale: 1:2395
+•	Rotation: 0,0
+Roads CPH Airway
+•	EPSG:25832: 728475.3289867112 6170394.891311332
+•	EPSG:4326: 55.625672306299556 12.629240974909392
+•	Magnifier: 100%
+•	Scale: 1:7500
+•	Rotation: 0,0
+Railway CPH 1
+•	EPSG:25832: 723486.4724097473 6174935.362744011
+•	EPSG:4326: 55.66870869576076 12.553857663324196
+•	Magnifier: 100%
+•	Scale: 1:6250
+•	Rotation: 45,0
+Railway CPH 2
+•	EPSG:25832: 724765.1355552396 6179703.071722055
+•	EPSG:4326: 55.710875207641706 12.578053833205749
+•	Magnifier: 100%
+•	Scale: 1:6250
+•	Rotation: -45,0
+Railway Vordingborg
+•	EPSG:25832: 685473.6163274201 6073185.263579482
+•	EPSG:4326: 54.77156187960006 11.883500761105221
+•	Magnifier: 100%
+•	Scale: 1:3906
+•	Rotation: -85,0
+Railway Odense
+•	EPSG:25832: 587435.8475407143 6140357.293375598
+•	EPSG:4326: 55.40166703264443 10.380731469438803
+•	Magnifier: 100%
+•	Scale: 1:3906
+•	Rotation: 20,0
+Railway Fredericia 1
+•	EPSG:25832: 545609.3706392419 6160186.471009724
+•	EPSG:4326: 55.58550407728558 9.72357854190053
+•	Magnifier: 100%
+•	Scale: 1:5000
+•	Rotation: -25,0
+Railway Fredericia 2
+•	EPSG:25832: 546557.5502522126 6158417.529289991
+•	EPSG:4326: 55.56952077137682 9.738321435086842
+•	Magnifier: 100%
+•	Scale: 1:5000
+•	Rotation: -95,0
+Railway Kolding 1
+•	EPSG:25832: 530212.6923690762 6149381.8707491495
+•	EPSG:4326: 55.48961946915622 9.478147590009236
+•	Magnifier: 100%
+•	Scale: 1:1875
+•	Rotation: 35,0
+Railway Kolding 2
+•	EPSG:25832: 530591.3839850358 6149721.524566469
+•	EPSG:4326: 55.49264783887438 9.484177975498344
+•	Magnifier: 100%
+•	Scale: 1:1875
+•	Rotation: 35,0
+Railway Lunderskov 1
+•	EPSG:25832: 519200.9128300034 6148232.946864594
+•	EPSG:4326: 55.47985216264475 9.303798703492525
+•	Magnifier: 100%
+•	Scale: 1:1875
+•	Rotation: 80,0
+Railway Aarhus 1
+•	EPSG:25832: 573517.3540208398 6223133.562352175
+•	EPSG:4326: 56.147562183875166 10.183315135133371
+•	Magnifier: 100%
+•	Scale: 1:7407
+•	Rotation: 45,0
+Railway Randers 1
+•	EPSG:25832: 562575.7030516868 6258058.609123172
+•	EPSG:4326: 56.462857845895805 10.015524156957962
+•	Magnifier: 100%
+•	Scale: 1:2778
+•	Rotation: -20,0
+
+Data extracted at Zoom Levels 16 and 17.
+Color Coding in QGIS by Class
+Class	HEX Color Code	Image Color
+Water Bodies + Water Way	#0404ff	
+ 
+
+Forest/Trees	#00a702	
+ 
+
+Land	#f3ff96	
+ 
+
+Water Way	#00fff9	
+ 
+
+Railway	#c16935	
+ 
+
+Roads + Offroads	#ff00e7	
+ 
+
+Offroads	#6835c0	
+ 
+
+Buildings	#969696	
+ 
+
+Currently thinking brainstorming how to have the drone direction estimation.
+
+1) Feature tracking (optical flow / KLT) → motion vectors(Pres: 1 2 )
+•	OpenCV tutorial on optical flow (concept + code) (docs.opencv.org)
+•	LearnOpenCV optical flow deep dive (theory + implementations) (LearnOpenCV)
+•	Video: OpenCV Python optical flow tracking (walkthrough) (YouTube)
+2) Planar motion via Homography + RANSAC (great for nadir + flat ground)
+•	OpenCV homography tutorial (clear explanation + code) (docs.opencv.org)
+•	OpenCV feature matching + findHomography tutorial (docs.opencv.org)
+•	LearnOpenCV homography examples (practical) (LearnOpenCV)
+3) Focus of Expansion (FOE) from optical flow (direction-of-translation cue)
+•	Practical FOE explanation + estimation idea (eranda.wordpress.com)
+•	Paper: FOE estimation from trajectories/flow (more rigorous) (gram.web.uah.es)
+•	Classic FOE technical report (MIT) (people.csail.mit.edu)
+4) Essential matrix / monocular visual odometry (proper geometry, scale unknown)
+•	Monocular VO using OpenCV (end-to-end explanation + code) (Avi Singh's blog)
+•	Extra reading: Structure-from-Motion with OpenCV (bigger picture) (Packt)
+•	Understanding recoverPose() (what you actually get: R, t direction) (Medium)
+Quick note so you don’t waste days
+If your footage is nadir + mostly planar terrain, start with Homography (RANSAC) and read translation direction from the estimated transform. Only jump to Essential matrix VO if you have lots of 3D structure / non-planar scenes.
+If you tell me what you’re using (OpenCV Python? MATLAB?) and whether you have camera intrinsics, I’ll point you to the exact “best next tutorial” from the list above.
+
+
+Okay training of ML model almost done, continue where you left off with ChatGPT
+Also, when running training, observer through terminal nvidia behaviour.
+Run nvidia-smi -l -1   in the terminal and also track cpu and gpu usage in performance tab of task manager(also would be smarter to use some program to track temperature, so I know if I have to do some shit for cooling or nah.
+
+Training continues. I’ve trained for 60 epochs with IoU = 0.4410, training lasted for 7hours. Not good enough. Trained additionally for 60 epochs. Training in total 120 epochs, i hit a plateau with best IoU = 0.4422 at 76 epochs, then early stopped at 91st epoch. ML model isn’t learning anything anymore, prediction is not good.
+
+Considerations to fix:
+
+1) Stop using ReduceLROnPlateau on noisy IoU rather use Cosine decay (optionally with warmup), or OneCycleLR (commonly better for CNN segmentation).
+2) Don’t early-stop until LR schedule finishes (your early stop is currently fighting your scheduler) Fix: only enable early stopping after LR has decayed through most of its schedule, or set patience to something like 30 for the first proper run.
+3) Diagonse which classes are flatlining, start logging per-class IoU!
+4) IoU metric is currently a mix of all classes so loss is being penalized unevenly. If i have class imbalance + small structures I should instead use a different loss than now. I am currently using loss CE + Tversky + Dice, it would be better to replace CE with Focal CE or class-balanced CE(weights from inverse frequency, effective number of samples).
+5) Potentially increasing the pixel size of images from 256x256 to 512x512. (I don’t think I will do this as I see images are in very good condition since they are RGB images an aerial photos still contain a lot of detail and overlap, shapes are what I’m training the model for.
+6) Validate your TMS split??? This is the first i hear about this but apparently If your train/val split is just shuffling tiles globally, nearby tiles can leak texture/context. That inflates early IoU and then plateaus.
+
+Requirement 1:
+As I thought before the most important is to know pixel per class count and change the loss function based on the pixel per class count. Lastly, add per-class IoU logging. These will be added first respectively.
+
+Currently implemented the above Requirement 1.
+Now I will have to train to see if a different result of will occur.
+
+
+
+
+Requirement 2:
+Next thing after training if it doesn’t help increase IoU, it would be smart to recheck with ChatGPT after giving him the new logs per-class IoU and the current logs in the csv files.
+Furthermore, if needed next best guess is weighted Focal CE potentially and/or Focal Tversky loss (very good for thin structures).
+Focal CE details :
+When Focal CE helps
+Focal Cross-Entropy down-weights “easy” pixels and focuses training on hard / misclassified pixels. That’s useful when:
+•	rare classes are thin (roads/railway/waterway)
+•	you see good performance on land/forest/waterbodies but bad on thin classes
+•	you get lots of confident wrong predictions at boundaries
+When Focal CE doesn’t help much
+If the problem is mostly:
+•	noisy labels / inconsistent masks
+•	not enough resolution/context (256×256 too small)
+•	spatial leakage / split issues
+then changing loss won’t move the needle much.
+
+
+realized training isn’t going in a better directiomn because of dataset problems. Extraction from qgis mangled the colors now trying to get more high res images to train on so to get better output. Color coding didn’t work properly to fix the issue. 
+mask_fix_alpa_v1.py is best color encoding py script. 
+
+Now I will extract all 4 locations again in 512x512 images for mask and aerial then run mask images through .py encoding script and retrain to see a different result.
+If this doesn’t help, I am thinking combining line classes into one class, to have shapes, because if I will use the ML model for shape matching and not superpoint superglue, then I dont have a big need for class differentiation, water and forest is either way to vague waterway doesn’t help much, and roads and offroads are very rare. So maybe a better dataset.
+
+
+Contineu from Thesis Dataset Discussion ChatGPt convo, basically i neded to do some shit either with dataset, because i have multiple variations of colors that are nowhere near any class color....
+
+
+only fix is to try to thicken lines and see an dcheck the colors because now i still have the same issue even with the color correcting script. Try to extract another dataset from the now changed QGIS, then check colors again see if needed, then use encoding script and see if you have still jagged lines, if not, TRAIN. Fuck it.
+
+
+TODO:
+1) Check how much of each class I have in current dataset to see if i need to add one more city or region with a richer class.
+2) I currently extracted coastline of Denmark and boundary of Denmark combine the two to have only Danish land as a polygon. Germany is still visible but should be ignored and is marked as water.
+3) I switched waterway class to be water class, class number is now 6. I will also combine all roads/offroads classes in one class and name it roads. I hand pick new regions with more water class to enrich the dataset, then do the same for roads.
+4) Extract New Dataset from QGIS that has thicker thin lines.
+5) Check the colors if they fucked with what_colors_are_FCUK.py
+6) Combine all shit in one dataset.
+Notes in meantime, so i had to change a lot of shit, i ran and analyzed the new dataset and it was shit still had the same issue of unknown pixels, turns out it was a layer than i recolored and this layer was some satellite images colored over with blue color to be like water. I created in QGIS a new layer with a new line around Denmark to have water and made a polygon of water from these joined lines encircling Denmark. So now there shouldn’t be any issues like unknown pixels anymore! Furthermore I just needed to turn off smoothing of lines in QGIS settings to be able to extract no anti-aliased lines.
+
+I will now extract new dataset, combine, analyze and then decide if i’ll train or not.
+7) Run it through V2_python_do_some_new_shit.py.
+
+I ran it through, and it said no red .png images from tilesets (which are unknown pixels) are present, but my check mask says there are a lot that exist like 13 million, even after recoloring. So not sure what is going on here, probably some bullshit. Anyhow gonna train now, probably i used wrong folder for analysis. Yeah i used wrong folder for analysis, i analyzed the same folder. Anyhow there is definitely no unknown pixel. All Gucci.
+8) Train.(Weight saved to json file, all setup just need to start train)
+8.a) Saving the new Dataset on SSD and deleting old shit.
+9) See results.
+
+
+
+REFERENCE MAP DATASET VEJLE:
+•	EPSG:25832: 532666.6830312725 6173815.28934812
+•	EPSG:4326: 55.70899999999998 9.519877777777774
+•	Magnifier: 100%
+•	Scale: 1:12000
+•	Rotation: 75,0
+
+Created IMU pipeline, works fine, it just isn’t real-time and doesn’t have models or anything. It can be used via SimConnect to MSFS 2020. It has been prepped as much as possible to also later on be able to integrate with PX4 ROS2 interface.
+
+•	Going to extract new summer dataset from Bing Satellite images.
+•	Retrain from checkpoint with modifications to combine winter summer dataset.
+•	Later try to train new model if retrain from checkpoint fails.
+
+You’re right about one thing: if you resume with the exact same optimizer+scheduler state, the LR may be tiny and adaptation will be slow. But that’s not a reason to avoid fine-tuning — it’s a reason to restart the optimizer/scheduler while keeping the checkpoint weights.
+Below are two pipelines you can paste as a guideline prompt into VS Code / ChatGPT-4.1. No code.
+________________________________________
+Pipeline A — Fine-tune from winter checkpoint (recommended first)
+Goal: adapt to summer without destroying winter performance, minimal compute.
+A0. Dataset preparation
+1.	Keep masks unchanged (same tile keys).
+2.	Extract summer orthophotos into a parallel folder with identical z/x/y.png structure.
+3.	Verify:
+o	1:1 tile coverage (report missing summer tiles; either drop or fallback to winter).
+o	image size fixed at 512×512.
+o	mask colors/IDs are exactly the 6 classes (no red unknown).
+A1. Define the training dataset index (don’t duplicate), bing is summer and foraar is winter.
+4.	Build a single tile index (CSV or list) with:
+o	tile_key
+o	aerial_foraar
+o	aerial_bing
+o	mask_path
+A2. Model init
+5.	Build the exact same architecture and class mapping as winter.
+6.	Load the model weights from your best winter checkpoint.
+7.	Do not resume optimizer/scheduler state. Reinitialize them.
+A3. Fine-tuning schedule (LR + sampling)
+8.	Start with a fresh LR (higher than your final LR, lower than your initial training LR).
+o	Rule of thumb: 5×–20× higher than the LR at epoch ~30.
+9.	Use a season curriculum:
+o	epochs 1–2: 80% winter / 20% summer
+o	epochs 3–6: 50% winter / 50% summer
+o	epochs 7–10: 20–30% winter / 70–80% summer
+10.	Use hard-tile weighting:
+•	After 1–2 epochs, run inference on summer set (or summer-val) and score tiles by:
+o	loss / per-class IoU drops
+o	confusion pairs: forest↔water, roads↔land, buildings↔land, railway↔land
+•	Increase sampling weights for worst tiles (oversample 3×–10×).
+11.	Keep everything else stable: same batch size, same 512 tile size, same augmentation core.
+A4. Validation and stop criteria
+12.	Maintain two validation sets:
+•	winter-val (to detect forgetting)
+•	summer-val (to confirm adaptation)
+13.	Stop when:
+•	summer-val improves and winter-val drops less than an acceptable margin.
+14.	Save best checkpoint by summer-val primary metric (and report winter-val).
+A5. Expected outcome
+•	Fast improvement on summer misclassifications without full retraining time.
+•	If winter collapses: lower LR, slow the curriculum (more winter), reduce oversampling intensity.
+________________________________________
+Pipeline B — Full retraining from scratch (only if A fails or you want a “clean” comparison)
+Goal: maximize overall robustness with a principled mixed-domain training.
+B0. Dataset preparation
+1.	Same as A0: parallel winter/summer image folders + shared masks + strict 6-class correctness.
+2.	Build a single tile index list (same as A1).
+B1. Dataset strategy (don’t physically double unless you must)
+3.	Conceptually treat each tile as having two views (winter/summer).
+4.	Decide your training scheme:
+o	Scheme 1 (recommended): One sample per tile per iteration, choose season by probability.
+o	Scheme 2: Two samples per tile (winter+summer) but keep epoch length fixed (i.e., redefine “epoch” as fixed number of steps rather than “full dataset pass”).
+B2. Sampling policy
+5.	Start training with balanced domain coverage but not naive 50/50:
+o	Use a season curriculum similar to A3, but longer.
+6.	Add hard-mining after initial convergence:
+o	compute summer hardness scores and confusion scores
+o	oversample hardest tiles (roads/rail/water boundaries)
+7.	If railway remains weak:
+o	oversample railway-containing tiles
+o	optionally increase railway weight in loss (or keep your thickening and class weighting)
+B3. Loss + robustness
+8.	Use a loss that handles thin classes and boundaries:
+o	weighted CE and/or focal-style emphasis for rare classes
+o	optionally a boundary-aware term if available in your stack
+9.	Use photometric augmentations that mimic seasonal/illumination changes:
+o	brightness/contrast/gamma
+o	hue/saturation/value
+o	shadows/haze/blur/noise (moderate, not destructive)
+B4. Training schedule
+10.	Use a standard LR schedule (warmup → main training → decay).
+11.	Define training in steps, not “epochs”, if mixing makes epoch semantics weird.
+12.	Save best checkpoint by summer-val and overall mean IoU, report both.
+B5. Evaluation
+13.	Compare against Pipeline A:
+•	final summer-val IoU
+•	winter-val retention
+•	confusion matrices on your problem pairs
+•	compute cost (hours)
+B6. Expected outcome
+•	Slightly better peak performance possible, but much higher compute cost.
+•	If full retrain doesn’t beat fine-tune meaningfully, it’s a waste.
+________________________________________
+Key clarification (so you don’t brick fine-tuning)
+When you “continue from checkpoint”, there are two modes:
+•	Resume training state (weights + optimizer + scheduler): LR stays tiny → bad for domain adaptation.
+•	Fine-tune from weights only (weights loaded, optimizer reset): LR can be set appropriately → this is what you want.
+________________________________________
+If you want, I can turn each pipeline into a copy-paste checklist (with headings you can drop into your thesis methodology section).
+
+
+
+
+IF Semantic model is bad then figure out the shapes it creates and colour then fill them with the color it needs to be or the colour that is dominant in that shape.
+
+
+You are an expert computer vision, geospatial localization, and Python systems engineer.
+
+Build a COMPLETE, PRACTICAL, and WELL-STRUCTURED local-area GPS-denied navigation prototype for my master thesis using:
+
+1) My EXISTING IMU estimation pipeline (already working flawlessly) as the coarse prior
+2) Ground-truth trajectory for evaluation
+3) Local orthophoto / satellite TMS tiles (reference map)
+4) DeDoDe v2 as the visual correction matcher (geometric verification + scoring)
+5) My EXISTING semantic terrain segmentation model as an additional cue for robust matching/scoring
+
+I want:
+- one MAIN Jupyter notebook (.ipynb) that runs the full pipeline end-to-end
+- plus as many helper .py modules as needed for clean structure
+- everything connected properly
+- everything checked at the end for consistency, imports, syntax, and functionality
+
+Do not give me a high-level outline.
+Generate actual code content for the notebook and supporting modules.
+
+====================================================
+CRITICAL NEW REQUIREMENT: REUSE EXISTING WORK
+====================================================
+
+I already have working components and “prototype notebooks”.
+You MUST thoroughly analyze and reuse them instead of rewriting from scratch.
+
+High emphasis:
+- IMU estimation must be reused with minimal changes (ideally 100% copy of the core logic).
+- The only required change: convert it from “batch/offline (process all images then output)” to “streaming / frame-by-frame” so the overall system behaves like real-time inference.
+
+Also:
+- I have messy semantic segmentation + database-matching code that works offline.
+  You MUST reuse its logic and refactor it into frame-by-frame inference instead of precomputing all predictions.
+
+====================================================
+EXISTING PROJECT LOCATION (MANDATORY CONTEXT)
+====================================================
+
+All my existing work lives here:
+
+C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline
+
+Tree (current state):
+
+C:.
+├── IMU_Pipeline_Final
+├── REFERENCE MAP CROPPED
+│   ├── aerial
+│   │   └── 1200ft AMSL 15fps
+│   ├── prediction
+│   │   └── 1200ft AMSL 15fps
+│   └── reference_map_resized_results
+├── REFERENCE_MAP_VEJLE
+│   ├── aerial
+│   │   ├── 16
+│   │   │   ├── 34494 ... 34508
+│   │   └── metatiles
+│   └── prediction
+│       ├── 16
+│       │   ├── 34494 ... 34508
+│       └── metatiles
+├── SemanticTerrainSegmentationModel
+│   └── best.pth
+├── reference_database_vejle.h5
+└── SemanticTerrainSegmentation_GPS_Localization_Drone_Route.ipynb
+
+You must:
+- read/inspect the IMU pipeline code in IMU_Pipeline_Final and reuse it
+- read/inspect the semantic localization logic in SemanticTerrainSegmentation_GPS_Localization_Drone_Route.ipynb and reuse it
+- treat reference_database_vejle.h5 as authoritative for linking the ~300 tiles to locations
+- treat REFERENCE_MAP_VEJLE as the reference TMS map
+- treat REFERENCE MAP CROPPED\aerial\1200ft AMSL 15fps as the query route frames (streamed one-by-one)
+
+====================================================
+PROJECT CONTEXT
+====================================================
+
+This is NOT a global geolocalization project.
+This is a LOCAL-AREA GPS-denied navigation system.
+
+The system must behave like this (streaming / frame-by-frame):
+
+For each frame (in filename order):
+1) Get IMU prior estimate for THIS frame (from IMU pipeline output in frame-by-frame form)
+2) Use IMU prior to restrict candidate tile search space
+3) Pull nearby candidate TMS tiles from REFERENCE_MAP_VEJLE (or via reference_database_vejle.h5 metadata)
+4) Run DeDoDe matching only against those local candidates
+5) Geometric verification (RANSAC / homography)
+6) ALSO run semantic segmentation on the current query frame (and optionally on candidate tiles) and compute semantic consistency score
+7) Combine DeDoDe score + semantic score to pick the best correction
+8) Produce corrected visual position estimate
+9) Compare corrected vs IMU vs ground truth (when available)
+10) Log and save outputs continuously
+
+DeDoDe is the VISUAL CORRECTION module, not the whole navigation system.
+
+====================================================
+ROOT FOLDER STRUCTURE (MANDATORY)
+====================================================
+
+Create ONE clean project folder under my existing root:
+
+C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\dedode_localization_project
+
+Do NOT move or rename my existing folders.
+Do NOT duplicate huge datasets unless necessary.
+
+Final structure must look like:
+
+dedode_localization_project/
+│
+├── main_localization_pipeline.ipynb
+│
+├── config/
+│   └── config.py
+│
+├── src/
+│   ├── io_utils.py
+│   ├── image_utils.py
+│   ├── tms_utils.py
+│   ├── kml_utils.py                     (only if needed)
+│   ├── imu_adapter.py                   (NEW: wraps IMU_Pipeline_Final into streaming)
+│   ├── semantic_adapter.py              (NEW: loads best.pth + runs per-frame inference)
+│   ├── semantic_matching_utils.py       (NEW: IoU/boundary score etc.)
+│   ├── dedode_adapter.py
+│   ├── matching_utils.py
+│   ├── localization_utils.py
+│   ├── visualization_utils.py
+│   └── evaluation_utils.py
+│
+├── outputs/
+│   ├── cache/
+│   │   ├── semantic/
+│   │   └── tiles_index/
+│   ├── visualizations/
+│   ├── matches/
+│   ├── metrics/
+│   └── logs/
+│
+└── scripts/
+    └── utility_scripts_if_needed.py
+
+====================================================
+PATH HANDLING RULES
+====================================================
+
+- Do not hardcode Windows paths inside src/ modules.
+- Only config/config.py may contain raw absolute Windows paths.
+- Everything else should build paths relative to PROJECT_ROOT.
+
+Use:
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+====================================================
+CONFIGURATION (MUST REFLECT EXISTING FOLDERS)
+====================================================
+
+In config/config.py include raw Windows paths pointing to my existing data:
+
+ALL_IN_ONE_ROOT = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline"
+
+QUERY_FRAMES_DIR = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE MAP CROPPED\aerial\1200ft AMSL 15fps"
+QUERY_PRED_DIR   = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE MAP CROPPED\prediction\1200ft AMSL 15fps"   (optional cache only)
+
+REFERENCE_TMS_DIR = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE\aerial"
+REFERENCE_PRED_DIR = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE\prediction"                       (optional cache only)
+
+REFERENCE_DB_PATH = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\reference_database_vejle.h5"
+
+IMU_PIPELINE_DIR = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\IMU_Pipeline_Final"
+
+SEMANTIC_MODEL_PATH = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\SemanticTerrainSegmentationModel\best.pth"
+SEMANTIC_INPUT_SIZE = 256
+SEMANTIC_CLASSES = {
+  0: "waterbodies",
+  1: "forest_trees",
+  2: "land",
+  3: "railway",
+  4: "roads",
+  5: "buildings"
+}
+SEMANTIC_FILTER_CLASSES = [2,4,5]   # stable across domains
+
+OUTPUT_DIR = r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\dedode_localization_project\outputs"
+
+Other core params:
+DEBUG_MODE = True
+DEBUG_QUERY_COUNT = 10
+TOP_K = 5
+IMAGE_SIZE = 560
+NUM_KEYPOINTS = 5000
+RANSAC_REPROJ_THRESH = 4.0
+MIN_MATCHES_FOR_H = 8
+LOCAL_SEARCH_RADIUS_METERS = 250.0
+MAX_CANDIDATE_TILES = 100
+
+USE_KORNIA_DEDODE = True
+
+USE_SEMANTICS = True
+SEMANTIC_SCORE_WEIGHTS = {"iou": 1.0, "boundary": 0.5}
+SEMANTIC_WEIGHT_IN_FINAL_SCORE = 3.0
+SEMANTIC_CACHE_DIRNAME = "cache/semantic"   # under outputs/
+
+SCORING_WEIGHTS = {
+  "num_inliers": 1.0,
+  "num_matches": 0.2,
+  "inlier_ratio": 10.0,
+  "median_confidence": 2.0,
+  "reprojection_error": -0.5
+}
+
+====================================================
+IMU PIPELINE INTEGRATION (MUST REUSE EXISTING CODE)
+====================================================
+
+The IMU pipeline currently:
+- processes all frames in batch
+- outputs predictions after processing completes
+
+You must:
+1) Read and understand IMU_Pipeline_Final as-is.
+2) Copy the core estimation logic (ideally unchanged).
+3) Implement a streaming wrapper imu_adapter.py that provides:
+
+- IMUEstimatorStream:
+    - __init__(...): loads any required models/config/files once
+    - step(frame_path) -> imu_est (lat, lon, heading, optional confidence, timestamp)
+    - reset() if needed
+
+4) Validate that streaming output matches batch output:
+- Implement a regression test on N frames:
+  compare batch vs streaming outputs and print max deviation.
+
+If the IMU pipeline already produces a file (CSV/KML/JSON) mapping filenames -> imu_lat/lon:
+- keep it supported as a fast path (read file)
+- but still provide step() to simulate real-time consumption.
+
+====================================================
+SEMANTIC SEGMENTATION INTEGRATION (MUST BE PER-FRAME)
+====================================================
+
+I have existing “shitty” code + a working notebook:
+SemanticTerrainSegmentation_GPS_Localization_Drone_Route.ipynb
+
+You must:
+- extract the good parts (model loading, transforms, class mapping, landmark extraction if used)
+- refactor them into semantic_adapter.py (per-frame inference)
+- do NOT precompute all predictions as a separate offline step in the main pipeline
+- optional: allow caching to disk so repeated runs are faster (but still conceptually per-frame)
+
+Semantic usage:
+- Run segmentation on query frame each step.
+- For candidate tiles:
+  - either (A) run segmentation on the tile on demand with caching, or
+  - (B) if reference predictions already exist in REFERENCE_MAP_VEJLE\prediction, use them as cache input
+- Compute semantic consistency score between query and candidate (IoU and/or boundary overlap) using only classes [2,4,5] by default.
+
+====================================================
+REFERENCE MAP + DATABASE USAGE
+====================================================
+
+- REFERENCE_MAP_VEJLE is a TMS tileset.
+- reference_database_vejle.h5 is the fast index/DB linking the ~300 tiles to locations.
+
+You must:
+- inspect the H5 DB schema (and/or reuse the ReferenceDatabase code from the existing notebook)
+- create an index ref_df that includes:
+  file_path, zoom, x, y, center_lat, center_lon, bounds (if possible), and any DB metadata
+
+Candidate selection:
+- given imu_lat/lon -> filter tiles within LOCAL_SEARCH_RADIUS_METERS
+- if too many -> keep MAX_CANDIDATE_TILES nearest
+
+====================================================
+LOCALIZATION LOGIC (COMBINED SCORING)
+====================================================
+
+For each query frame, for each candidate tile:
+- DeDoDe match + homography verification
+- compute dedode metrics:
+  num_matches, num_inliers, inlier_ratio, reprojection_error, confidence stats
+- compute semantic metrics:
+  semantic_iou, semantic_boundary_overlap, semantic_score
+- combined final score:
+  final_score = dedode_score + SEMANTIC_WEIGHT_IN_FINAL_SCORE * semantic_score
+
+Pick best candidate:
+- corrected position defaults to best tile center
+- if homography is stable, optionally refine within-tile position (modular, fallback-safe)
+
+Then compute errors vs ground-truth (if GT available):
+- IMU error to GT (m)
+- corrected error to GT (m)
+- improvement (m)
+
+====================================================
+OUTPUTS (MANDATORY)
+====================================================
+
+Write everything into:
+dedode_localization_project/outputs/
+
+Save:
+- reference_index.csv
+- query_index.csv
+- imu_stream_outputs.csv (or JSONL)
+- semantic_stream_outputs.csv (optional)
+- match_results.csv
+- localization_results.csv
+- per-query/frame logs
+- plots + visualizations
+- summary.json
+
+Also save caches:
+- outputs/cache/semantic/ (query + tile masks)
+- outputs/cache/tiles_index/ (ref_df etc.)
+
+====================================================
+MAIN NOTEBOOK REQUIREMENTS
+====================================================
+
+One notebook: main_localization_pipeline.ipynb
+
+It must run cell-by-cell and orchestrate:
+- config load
+- dataset discovery
+- build/load reference index
+- initialize IMU estimator stream
+- initialize semantic model
+- initialize DeDoDe
+- run streaming loop over frames (one-by-one)
+- save incremental results
+- evaluation plots
+- final validation checklist
+
+Notebook sections (in order):
+1) Title / objective
+2) Setup / installs
+3) Imports
+4) Project structure / module imports
+5) Configuration
+6) Dataset discovery (using existing folders)
+7) Load/build reference DB index
+8) Initialize IMU stream (reuse IMU_Pipeline_Final)
+9) Initialize semantic model (best.pth)
+10) Initialize DeDoDe
+11) Sanity checks (random frame + a few candidate tiles)
+12) Single-frame end-to-end test
+13) Streaming localization loop (frame-by-frame)
+14) Metrics + plots
+15) Save outputs
+16) Final validation / likely failure points
+
+====================================================
+ROBUSTNESS REQUIREMENTS
+====================================================
+
+The code must:
+- handle unreadable images
+- handle missing IMU for a frame (skip with log)
+- handle missing GT for a frame (evaluate when available)
+- handle empty candidate tile sets
+- handle no-match cases
+- handle missing homography
+- not crash on single-frame failure
+- log useful warnings
+- keep running
+
+====================================================
+FINAL VALIDATION REQUIREMENT
+====================================================
+
+At the end, after generating all notebook cells and .py modules:
+- recheck file/module structure
+- recheck imports
+- recheck function wiring
+- recheck syntax
+- identify likely runtime breakpoints (DeDoDe API differences, H5 schema differences, GPU deps)
+- include a final markdown section:
+  "Project validation and likely failure points"
+
+====================================================
+DELIVERABLE
+====================================================
+
+Generate:
+1) the main .ipynb notebook content
+2) all supporting .py file contents
+3) a project folder structure (under All_In_One_Pipeline\dedode_localization_project)
+
+Do not stop at an outline.
+Write actual executable Python code.
+Do not invent fake APIs. Isolate DeDoDe calls in an adapter.
+And remember: reuse my existing IMU + semantic localization work, refactor it, and make it streaming.
+
+
+
+
+
+
+
+
+
+
+ROOMS FOR IMPROVEMENT:
+1.a) I need another way for tile matching of semantic images. The shape algorithm is useless for my case, maybe some OpenCV edge or general structure (lines of buildings, lines of roads of these colored shapes and finding in this manner)
+Reason being is that while testing the algorithm doesn’t work at all because throughout frames the consistency of each prediction of a shape it isn’t consistent. So, in this manner I need something better or add something on top of that.
+1.b) I DEFINITELY NEED ANOTHER WAY TO ORGANIZE THE TILES THAT I HAVE BECAUSE I NEED A MATCHING ALGORITHM SOMEHOW TO COMBINE TILES INTO ONE OR PICK AND CHOOSE TILES AND MATCH LIKE THAT, I CANT HAVE TOP K TILES AND THEN MATCH, I NEED TO TOP K TILES AND SORT THEM TOGETHER AND THEN MATCH THIS IS THE ONLY WAY THEN FOR THE PARTS OF THE SEMANTIC MODEL WHERE IT CONNECTS OR WHERE IT IS, THEN CHOOSE A COORDINATE BASED ON THESE TILES. NO OTHER WAY. THIS IS MAIN PROBLEM WHY SEMANTIC MODEL DOESN’T WORK, HE IS FOCUSING SOLELY ON A SMALL FOV HE HAS HE NEEDS A BIGGER FOV SO HE HAS MORE TO WORK WITH. ALSO HE NEEDS SOME KIND OF ROTATION TO FIND THE BEST MATCH WITH ROTATIONS OR OVERLAPS THAT MATCH BETWEEN THE ROADS AND THE BUILDINGS AND FOREST.
+1.b) So another problem is when the matching algorithm happens there is no rotation of the reference dataset or any kind of pose estimation that is going to increase the success of the matching algorithm. Since also this a problem because if he doesn’t have this correct he will very unlikely estimate anything. 
+I was thinking maybe using the measurement from the drone having the heading of the compass to help this with choosing the correct TMS format dataset tile, but then again Problem 2) arises with the domain shift so if I go for somehow and MSFS dataset then this goes down into the drain because its pretty hard to find north from this it needs to be manually created and also manually create the MSFS dataset of a local area. Idk how to make this.
+2)  Domain shift problem, I can’t have a satellite dataset being used as a reference from the aerial view. This will never work since my matching algorithm of semantics needs to match with the aerial view. Because of this time of day, seasonal and photometric differences I cannot validate or test this successfully. This is not only for semantic terrain segmentation but it is additionally also for the DeDoDe or any keypoint matching ML algorithm that is solely based on some level of semantics, since photometric differences between MSFS aerial images and the real-world satellite images are hardly matching. Most of time the reason for this is, seasonal differences where the model fails since it isn’t very well trained on summer dataset from Bing satellite but also additionally from this seasonal difference the keypoint extractor extracts different “landmarks” from the MSFS aerial view than what he extracts from the satellite view. Last problem can be attribute which adds on to the complexity is the photometric problem, MSFS doesn’t have a very good sense of reality, sometimes it fails in terms of agricultural fields and then it isn’t 100% the same as the Bing satellite images, EVEN THOUGH MSFS map is “inspired” by the Bing satellite images. Most likely they used some ML model to transform and put it into their map engine.
+3) Train more the ML model on the summer dataset mainly(ASSUMING IT WOULD MAKE IT ESTIMATE BETTER ON THE MSFS DATASET, THIS A VERY RISKY ASSUMPTION) and try to get better estimations for FOREST(often I see forest and land misclassification and “forest”[trees] and road misclassification), ROAD( often I see road misclassified as land and building!). Water is very consistent, land is very consistent and building seem to be very consistent even though they sometimes are misclassified as roads as well. RETRAIN MODEL DEFINIETLY WITH SOME ALBUMENTATIONS FOR SHADOWS AND DIFFERENT LIGHTNING AUGMENTATIONS SPECIFICALLY FOR SATELLITE IMAGES IF POSSIBLE IF NOT SOMETHING THAT CAN HELP THIS.
+
+Capture00022936.jpeg aerial image and corresponding mask check.
+COMPARE THIS:
+C:\Users\emilj\Documents\Thesis\TRAINING\REFERENCE MAP CROPPED\aerial\1200ft AMSL 15fps\Capture00022936.jpeg
+C:\Users\emilj\Documents\Thesis\TRAINING\REFERENCE MAP CROPPED\prediction\1200ft AMSL 15fps\Capture00022936.jpeg
+WITH THIS:
+C:\Users\emilj\Documents\Thesis\TRAINING\REFERENCE_MAP_VEJLE\prediction\16\34500\45029.png
+C:\Users\emilj\Documents\Thesis\TRAINING\REFERENCE_MAP_VEJLE\aerial\16\34500\45029.png
+- Can I retrain with MSFS aerial images use the model on them and then modify it a bit an retrain or use an even better model and create masks for the images.
+4) Get access to drone lab figure out the nadir view and autopilot flight plan and extract a dataset which starts at 12pm and has consistent daytime(NO SHADOWS IS VERY IMPORTANT FOR SEMANTIC MODEL SUCCESS)!, weather and route. Extracting the correct IMU plane measurements as well and have that as the test or validate dataset. So basically make that shit work so I can one thing good right.
+5) REALIZED NOW THAT WHEN I HAVE SUPERPOINT + SUPREGLUE OR DEDODE THERE IS A FUNCTION THAT DOES CANDIDATE TILE SEARCHING. THIS FUNCTION NEEDS TO BE ALSO THOUGHT OUT VERY WELL SINCE THIS IS THE THING THAT ACTUALLY HELPS MY MODEL PREDICT AND MAKE THE SEARCH MORE CONCISE. Right now it can be a radius and a base tile, but the radius needs to be very large and also the radius is very shit way to do it, might be better to do some other kind of tile searching..
+6) IMU ESTIMATOR NEEDS MORE REFINEMENT. 1.2km error is not GOOD! 120m INITIAL ERROR IS ALSO NOT GOOD! I NEED TO SOMEHOW EITHER TUNE VERY WELL KALMAN OR NEED SOME ONE MORE MEASUREMENT OR SOME OTHER FUNCTION. FIND RESEARCH PAPERS THAT HAVE ALREADY DONE THIS.
+
+

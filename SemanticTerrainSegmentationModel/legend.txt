@@ -1,0 +1,6 @@
+waterbodies - rgb( 4, 4, 255 )
+forest_trees - rgb( 0, 167, 2 )
+land - rgb( 243, 255, 150 )
+railway - rgb( 193, 105, 53 )
+roads - rgb( 255, 0, 231 )
+buildings - rgb( 150, 150, 150 )
