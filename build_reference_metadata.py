@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 
 # Scan TMS directory
-tms_dir = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE\aerial")
+tms_dir = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE_20260321_162024\aerial")
 zoom = 16
 
 tiles = []

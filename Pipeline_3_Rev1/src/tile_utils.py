@@ -17,28 +17,39 @@ EARTH_CIRCUMFERENCE = 2 * math.pi * EARTH_RADIUS_METERS
 # ─── Coordinate conversions ───────────────────────────────────────
 
 def latlon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
-    """Convert (lat, lon) → integer TMS tile (x, y)."""
+    """Convert (lat, lon) → integer TMS tile (x, y_tms)."""
     lat_rad = math.radians(lat)
     n = 2.0 ** zoom
     tile_x = int((lon + 180.0) / 360.0 * n)
-    tile_y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+    osm_y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+    tile_y = int(n) - 1 - osm_y          # OSM → TMS
     return tile_x, tile_y
 
 
 def latlon_to_tile_float(lat: float, lon: float, zoom: int) -> Tuple[float, float]:
-    """Convert (lat, lon) → fractional tile coordinates."""
+    """Convert (lat, lon) → fractional tile coordinates (TMS Y).
+
+    Uses ``n - osm_y`` (not ``n-1``) so that ``floor(tile_y)`` equals the
+    integer TMS tile index returned by :func:`latlon_to_tile`.
+    """
     lat_rad = math.radians(lat)
     n = 2.0 ** zoom
     tile_x = (lon + 180.0) / 360.0 * n
-    tile_y = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
+    osm_y = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
+    tile_y = n - osm_y                     # OSM → TMS (continuous)
     return tile_x, tile_y
 
 
 def tile_to_latlon(tile_x: float, tile_y: float, zoom: int) -> Tuple[float, float]:
-    """Convert tile (x, y) → center (lat, lon). Accepts float or int."""
+    """Convert TMS tile (x, y_tms) → (lat, lon). Accepts float or int.
+
+    For an integer tile, returns the SW corner (south-west).
+    Uses ``n - tile_y`` for correct continuous-coordinate mapping.
+    """
     n = 2.0 ** zoom
+    osm_y = n - tile_y                      # TMS → OSM (continuous)
     lon = tile_x / n * 360.0 - 180.0
-    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * tile_y / n)))
+    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * osm_y / n)))
     lat = math.degrees(lat_rad)
     return lat, lon
 
@@ -70,8 +81,9 @@ class TileBounds:
 
 
 def tile_bounds(tile_x: int, tile_y: int, zoom: int) -> TileBounds:
-    lat_max, lon_min = tile_to_latlon(tile_x, tile_y, zoom)
-    lat_min, lon_max = tile_to_latlon(tile_x + 1, tile_y + 1, zoom)
+    # In TMS: smaller y = south, larger y = north
+    lat_min, lon_min = tile_to_latlon(tile_x, tile_y, zoom)          # SW corner
+    lat_max, lon_max = tile_to_latlon(tile_x + 1, tile_y + 1, zoom) # NE corner
     return TileBounds(min_lat=lat_min, max_lat=lat_max,
                       min_lon=lon_min, max_lon=lon_max)
 

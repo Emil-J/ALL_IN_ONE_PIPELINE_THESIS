@@ -1,0 +1,56 @@
+# Cell 2 — Load Video Sequence & IMU data + EKF preprocessing
+from src.ekf_ins import preprocess_imu_csv
+from src.tile_utils import latlon_to_tile
+
+# Run Error-State EKF to get dead-reckoned positions
+imu_log = preprocess_imu_csv(config.IMU_CSV_PATH)
+print(f'IMU log: {len(imu_log)} rows, EKF columns: {[c for c in imu_log.columns if "ekf" in c]}')
+
+# Build frame list: match CSV timestamps to frame files
+frame_dir = config.QUERY_FRAMES_DIR
+frame_files = sorted(frame_dir.glob('frame_*.jpg'))
+print(f'Found {len(frame_files)} frames in {frame_dir}')
+
+# Map rounded timestamp -> frame path
+frame_map = {}
+for fp in frame_files:
+    ts_str = fp.stem.replace('frame_', '')
+    try:
+        ts = float(ts_str)
+        frame_map[round(ts, 3)] = fp
+    except ValueError:
+        continue
+
+# Auto-detect START_ROW: first row whose GPS tile falls inside the reference map
+START_ROW = 0
+for idx in range(len(imu_log)):
+    row = imu_log.iloc[idx]
+    tx, ty = latlon_to_tile(row['latitude'], row['longitude'], 16)
+    if config.TILE_X_MIN <= tx <= config.TILE_X_MAX and config.TILE_Y_MIN <= ty <= config.TILE_Y_MAX:
+        START_ROW = idx
+        print(f'Auto-detected START_ROW = {idx} (ts={row["timestamp"]:.1f}s, tile=({tx},{ty}))')
+        break
+else:
+    print('WARNING: no GPS row falls inside reference map!')
+
+NUM_FRAMES = 300  # Process this many aligned frames from the in-map region
+
+aligned = []
+for idx in range(START_ROW, len(imu_log)):
+    row = imu_log.iloc[idx]
+    ts_rounded = round(row['timestamp'], 3)
+    if ts_rounded in frame_map:
+        aligned.append((idx, row['timestamp'], frame_map[ts_rounded]))
+    if len(aligned) >= NUM_FRAMES:
+        break
+
+print(f'Aligned {len(aligned)} frame-IMU pairs (starting from row {START_ROW})')
+if aligned:
+    print(f'First: ts={aligned[0][1]:.3f}  Last: ts={aligned[-1][1]:.3f}')
+    inside = 0
+    for csv_idx, _, _ in aligned:
+        r = imu_log.iloc[csv_idx]
+        tx, ty = latlon_to_tile(r['latitude'], r['longitude'], 16)
+        if config.TILE_X_MIN <= tx <= config.TILE_X_MAX and config.TILE_Y_MIN <= ty <= config.TILE_Y_MAX:
+            inside += 1
+    print(f'Frames inside reference map: {inside}/{len(aligned)}')

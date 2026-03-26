@@ -109,7 +109,7 @@ class ParticleFilter:
         for p in self.particles:
             hdg_rad = math.radians(p.heading)
             dx_m = velocity_mps * math.sin(hdg_rad) * dt   # East component
-            dy_m = -velocity_mps * math.cos(hdg_rad) * dt  # North → tile-Y inverted
+            dy_m = velocity_mps * math.cos(hdg_rad) * dt   # North = +Y in TMS
             p.x += dx_m / self._tile_size_m + rng.normal(0, noise_pos_tiles)
             p.y += dy_m / self._tile_size_m + rng.normal(0, noise_pos_tiles)
             p.heading = (p.heading + gyro_z_dps * dt
@@ -246,8 +246,9 @@ class ParticleFilter:
         est = self.get_estimate()
         unc = self.get_uncertainty()
 
-        # 3σ radius in tiles (minimum ≈ 100 m ≈ 0.33 tiles)
-        radius_m = max(3 * unc["position_std_m"], 100.0)
+        # 3σ radius in tiles (minimum 1.5 tiles to guarantee finding neighbours)
+        min_radius_m = 1.5 * self._tile_size_m  # ~500 m at zoom 16
+        radius_m = max(3 * unc["position_std_m"], min_radius_m)
         radius_tiles = radius_m / self._tile_size_m
 
         mean_hdg = est[2]

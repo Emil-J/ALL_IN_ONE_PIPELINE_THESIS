@@ -18,8 +18,8 @@ ALL_IN_ONE_ROOT = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline")
 # ═══════════════════════════════════════════════════════════════════
 
 # Reference TMS tileset (Vejle, Denmark - zoom 16)
-REFERENCE_TILES_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE" / "aerial"
-REFERENCE_PRED_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE" / "prediction"
+REFERENCE_TILES_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE_20260321_162024" / "aerial"
+REFERENCE_PRED_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE_20260321_162024" / "prediction"
 REFERENCE_METADATA_CSV = ALL_IN_ONE_ROOT / "reference_tiles_metadata.csv"
 
 # Query frames
@@ -95,7 +95,7 @@ COLOR_MAP = {
 # FEATURE MATCHER (SuperPoint + LightGlue)
 # ═══════════════════════════════════════════════════════════════════
 
-MAX_NUM_KEYPOINTS = 2048
+MAX_NUM_KEYPOINTS = 4096
 MIN_MATCHES_FOR_HOMOGRAPHY = 4
 RANSAC_REPROJ_THRESH = 8.0
 
@@ -103,7 +103,7 @@ RANSAC_REPROJ_THRESH = 8.0
 # PIPELINE 1: BEST-FIRST SEARCH
 # ═══════════════════════════════════════════════════════════════════
 
-IMU_SEARCH_RADIUS_METERS = 350.0
+IMU_SEARCH_RADIUS_METERS = 500.0
 MAX_SEARCH_ITERATIONS = 200
 TOP_K_CANDIDATES = 5
 
@@ -132,7 +132,7 @@ TEMPORAL_SEARCH_MAX_ITERATIONS = 50
 TEMPORAL_MIN_SEARCH_RADIUS = 0.3       # tiles (~100m)
 TEMPORAL_MIN_ROTATION_RANGE = 10.0     # degrees
 
-DIVERGENCE_POSITION_THRESHOLD_M = 200.0
+DIVERGENCE_POSITION_THRESHOLD_M = 500.0
 DIVERGENCE_WEIGHT_THRESHOLD = 0.01
 
 PARTICLE_INIT_SPREAD_HIGH_CONF = {"position_meters": 50, "heading_degrees": 10}
@@ -143,7 +143,7 @@ PARTICLE_INIT_SPREAD_LOW_CONF = {"position_meters": 200, "heading_degrees": 30}
 # TWO-PASS META-TILE CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════
 
-FIRST_PASS_SEARCH_RADIUS_M = 300.0
+FIRST_PASS_SEARCH_RADIUS_M = 500.0
 SECOND_PASS_NEIGHBOURS = 8
 METATILE_TOP_K = 3
 METATILE_MATCH_THRESHOLD = 25  # initial hypothesis — tune from logs

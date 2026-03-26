@@ -17,7 +17,6 @@ from src.tile_utils import (
     tile_to_latlon,
     haversine_distance,
 )
-from src.image_utils import preprocess_query_frame
 from src.position_estimator import estimate_position, estimate_homography, query_center_in_reference, pixel_to_latlon_single_tile
 
 logger = logging.getLogger(__name__)
@@ -65,14 +64,6 @@ class BestFirstSearcher:
         t0 = time.perf_counter()
         radius = search_radius_m or self.cfg.IMU_SEARCH_RADIUS_METERS
 
-        # Pre-process query frame once
-        query_processed = preprocess_query_frame(
-            query_frame,
-            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
-            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
-            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
-        )
-
         # 1. Find candidate tiles
         candidates = find_tiles_within_radius(
             imu_lat, imu_lon, radius,
@@ -92,7 +83,7 @@ class BestFirstSearcher:
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue
-            match_res = self.matcher.match(query_processed, tile_img)
+            match_res = self.matcher.match(query_frame, tile_img)
             results.append((tx, ty, match_res["num_matches"], match_res))
 
         if not results:
@@ -115,9 +106,8 @@ class BestFirstSearcher:
         )
         if homo is not None:
             H, inlier_mask = homo
-            ref_x, ref_y = query_center_in_reference(
-                H, self.cfg.QUERY_RESIZE_WIDTH, self.cfg.SEMANTIC_INPUT_SIZE,
-            )
+            qh, qw = query_frame.shape[:2]
+            ref_x, ref_y = query_center_in_reference(H, qw, qh)
             lat, lon = pixel_to_latlon_single_tile(
                 ref_x, ref_y, best_tx, best_ty,
                 tile_px=self.cfg.TMS_TILE_SIZE_PX,

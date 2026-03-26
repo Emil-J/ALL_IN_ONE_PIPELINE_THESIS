@@ -85,6 +85,7 @@ class TemporalSearcher:
 
         self.frame_count += 1
         self.last_timestamp = timestamp
+        result["_timestamp"] = timestamp
         self.history.append(result)
         self._write_log(result, imu_data, timestamp)
         return result
@@ -178,18 +179,14 @@ class TemporalSearcher:
         region = self.particle_filter.get_search_region()
         center_lat, center_lon = tile_to_latlon(
             region["center"][0], region["center"][1], self.cfg.TMS_ZOOM_LEVEL)
-        search_radius_m = region["radius_tiles"] * self.cfg.TILE_SIZE_METERS
-
-        # Step 3 — Two-pass search via MetaTileBuilder
-        query_processed = preprocess_query_frame(
-            query_frame,
-            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
-            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
-            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
+        search_radius_m = max(
+            region["radius_tiles"] * self.cfg.TILE_SIZE_METERS,
+            self.cfg.FIRST_PASS_SEARCH_RADIUS_M,
         )
 
+        # Step 3 — Two-pass search via MetaTileBuilder (raw frame for feature matching)
         meta_result = self.meta_tile_builder.run(
-            query_frame=query_processed,
+            query_frame=query_frame,
             imu_lat=center_lat,
             imu_lon=center_lon,
             query_timestamp=timestamp,
@@ -226,7 +223,13 @@ class TemporalSearcher:
         self.particle_filter.update(measurements)
         self.particle_filter.resample()
 
-        # Step 6 — Semantic double-confirmation
+        # Step 6 — Semantic double-confirmation (preprocess for semantic model only)
+        query_processed = preprocess_query_frame(
+            query_frame,
+            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
+            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
+            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
+        )
         query_semantic_map = self.semantic_model.predict(query_processed)
         confirm_result = self.semantic_confirmer.confirm(
             query_semantic_map, meta_result["meta_tile"])
@@ -239,11 +242,12 @@ class TemporalSearcher:
         # Position estimation via homography (if verified)
         homo_position = None
         if meta_result["verified"] and meta_result.get("match_result"):
+            qh, qw = query_frame.shape[:2]
             pos_est = estimate_position(
                 meta_result["match_result"],
                 meta_result["top3_tiles"],
-                query_w=self.cfg.QUERY_RESIZE_WIDTH,
-                query_h=self.cfg.SEMANTIC_INPUT_SIZE,
+                query_w=qw,
+                query_h=qh,
                 tile_px=self.cfg.TMS_TILE_SIZE_PX,
                 zoom=self.cfg.TMS_ZOOM_LEVEL,
                 ransac_thresh=self.cfg.RANSAC_REPROJ_THRESH,

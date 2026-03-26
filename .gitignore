@@ -26,6 +26,8 @@
 # ============================================================
 # IMAGES AND REFERENCE TILES (keep reference map on disk)
 # ============================================================
+REFERENCE_MAP_VEJLE_20260321_162024/
+Pipeline_3_Rev1/outputs
 REFERENCE_MAP_VEJLE/
 Logs_Run_*/
 outputs/metatiles/
