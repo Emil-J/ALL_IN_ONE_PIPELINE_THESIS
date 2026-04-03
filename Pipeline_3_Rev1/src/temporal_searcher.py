@@ -84,10 +84,10 @@ class TemporalSearcher:
             result = self._process_frame_N(query_frame, imu_data, timestamp)
 
         self.frame_count += 1
-        self.last_timestamp = timestamp
         result["_timestamp"] = timestamp
         self.history.append(result)
         self._write_log(result, imu_data, timestamp)
+        self.last_timestamp = timestamp
         return result
 
     # ════════════════════════════════════════════════════════════
@@ -114,9 +114,20 @@ class TemporalSearcher:
             spread = self.cfg.PARTICLE_INIT_SPREAD_LOW_CONF
 
         # Initialize particle filter
-        init_lat = position[0] if position else imu_data["lat"]
-        init_lon = position[1] if position else imu_data["lon"]
+        # Only trust visual cold-start if score >= 100.
+        # Low-score matches are likely wrong (domain shift) and
+        # initialising the PF there causes a large initial error.
+        if score >= 100 and position:
+            init_lat, init_lon = position
+        else:
+            init_lat, init_lon = imu_data["lat"], imu_data["lon"]
+            if position:
+                logger.info("Cold-start score %d < 100 — using EKF position", score)
         init_heading = imu_data["heading"]
+
+        # Also report position as EKF-based when visual was rejected
+        if score < 100:
+            position = (init_lat, init_lon)
 
         self.particle_filter = ParticleFilter(
             num_particles=self.cfg.NUM_PARTICLES,
@@ -201,47 +212,10 @@ class TemporalSearcher:
                 imu_data, timestamp, elapsed, unc,
                 reason="no_first_pass_tiles")
 
-        # Step 4 — Extract measurements for particle update
-        if meta_result["verified"]:
-            measurements = [
-                {"position": (tx, ty), "heading": imu_data["heading"],
-                 "score": float(score)}
-                for tx, ty, score in meta_result["top3_tiles"]
-            ]
-        else:
-            # Only top-1 as low-confidence measurement
-            if meta_result["top3_tiles"]:
-                tx, ty, score = meta_result["top3_tiles"][0]
-                measurements = [
-                    {"position": (tx, ty), "heading": imu_data["heading"],
-                     "score": float(score) * 0.3}
-                ]
-            else:
-                measurements = []
-
-        # Step 5 — Update particle filter
-        self.particle_filter.update(measurements)
-        self.particle_filter.resample()
-
-        # Step 6 — Semantic double-confirmation (preprocess for semantic model only)
-        query_processed = preprocess_query_frame(
-            query_frame,
-            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
-            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
-            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
-        )
-        query_semantic_map = self.semantic_model.predict(query_processed)
-        confirm_result = self.semantic_confirmer.confirm(
-            query_semantic_map, meta_result["meta_tile"])
-
-        # Step 7 — Get final estimate
-        est_x, est_y, est_hdg = self.particle_filter.get_estimate()
-        est_lat, est_lon = tile_to_latlon(
-            est_x, est_y, self.cfg.TMS_ZOOM_LEVEL)
-
-        # Position estimation via homography (if verified)
+        # Step 4 — Compute homography BEFORE particle update (for sub-tile measurements)
         homo_position = None
-        if meta_result["verified"] and meta_result.get("match_result"):
+        homo_tile_pos = None  # fractional tile coords from homography
+        if meta_result.get("match_result"):
             qh, qw = query_frame.shape[:2]
             pos_est = estimate_position(
                 meta_result["match_result"],
@@ -254,10 +228,123 @@ class TemporalSearcher:
                 min_matches=self.cfg.MIN_MATCHES_FOR_HOMOGRAPHY,
             )
             if pos_est:
-                homo_position = (pos_est["lat"], pos_est["lon"])
+                # Geometric sanity check: projected center must be within
+                # the meta-tile canvas bounds (reject degenerate H)
+                xs = [t[0] for t in meta_result["top3_tiles"]]
+                ys = [t[1] for t in meta_result["top3_tiles"]]
+                rx, ry = pos_est["ref_px"]
+                meta_w = (max(xs) - min(xs) + 1) * self.cfg.TMS_TILE_SIZE_PX
+                meta_h = (max(ys) - min(ys) + 1) * self.cfg.TMS_TILE_SIZE_PX
+                if 0 <= rx <= meta_w and 0 <= ry <= meta_h:
+                    homo_position = (pos_est["lat"], pos_est["lon"])
+                    # Convert to fractional tile coords for particle update
+                    from src.tile_utils import latlon_to_tile_float
+                    homo_tile_pos = latlon_to_tile_float(
+                        pos_est["lat"], pos_est["lon"],
+                        self.cfg.TMS_ZOOM_LEVEL)
+                else:
+                    logger.debug("Homography projected center (%.1f,%.1f) "
+                                 "outside meta-tile %dx%d — rejected",
+                                 rx, ry, meta_w, meta_h)
+
+        # Step 5 — Extract measurements for particle update
+        # Prefer homography sub-tile position when available;
+        # otherwise fall back to tile centers.
+        MAX_SCORE = 50.0  # cap for normalization
+        if homo_tile_pos is not None:
+            # Use homography-derived sub-tile position (high confidence)
+            inlier_score = min(pos_est["inliers"], MAX_SCORE) / MAX_SCORE
+            measurements = [
+                {"position": homo_tile_pos,
+                 "heading": imu_data["heading"],
+                 "score": inlier_score}
+            ]
+        elif meta_result["verified"]:
+            measurements = [
+                {"position": (tx + 0.5, ty + 0.5),
+                 "heading": imu_data["heading"],
+                 "score": min(float(score), MAX_SCORE) / MAX_SCORE}
+                for tx, ty, score in meta_result["top3_tiles"]
+            ]
+        else:
+            # Only top-1 as low-confidence measurement
+            if meta_result["top3_tiles"]:
+                tx, ty, score = meta_result["top3_tiles"][0]
+                measurements = [
+                    {"position": (tx + 0.5, ty + 0.5),
+                     "heading": imu_data["heading"],
+                     "score": min(float(score), MAX_SCORE) / MAX_SCORE * 0.3}
+                ]
+            else:
+                measurements = []
+
+        # EKF anchoring: add EKF dead-reckoned position as a moderate-
+        # confidence measurement.  This prevents spurious visual matches
+        # from pulling particles too far from the predicted trajectory.
+        from src.tile_utils import latlon_to_tile_float
+        ekf_tile_pos = latlon_to_tile_float(
+            imu_data["lat"], imu_data["lon"], self.cfg.TMS_ZOOM_LEVEL)
+        measurements.append({
+            "position": ekf_tile_pos,
+            "heading": imu_data["heading"],
+            "score": 0.5,  # moderate confidence for EKF anchor
+        })
+
+        # Step 6 — Update particle filter
+        self.particle_filter.update(measurements)
+        self.particle_filter.resample()
+
+        # Step 7 — Semantic double-confirmation (preprocess for semantic model only)
+        query_processed = preprocess_query_frame(
+            query_frame,
+            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
+            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
+            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
+        )
+        query_semantic_map = self.semantic_model.predict(query_processed)
+        confirm_result = self.semantic_confirmer.confirm(
+            query_semantic_map, meta_result["meta_tile"])
+
+        # Step 8 — Get final estimate
+        est_x, est_y, est_hdg = self.particle_filter.get_estimate()
+        est_lat, est_lon = tile_to_latlon(
+            est_x, est_y, self.cfg.TMS_ZOOM_LEVEL)
 
         # Use homography position if available, else particle estimate
-        final_position = homo_position or (est_lat, est_lon)
+        visual_position = homo_position or (est_lat, est_lon)
+
+        # Step 9 — Hard-gated EKF/visual blending.
+        # Analysis shows: score>150 AND dist<200m → 92% correct, 117m error.
+        # Use tile center (validated by analysis) rather than homography position.
+        from src.tile_utils import haversine_distance as _hav
+        ekf_pos = (imu_data["lat"], imu_data["lon"])
+
+        match_score = meta_result["top3_tiles"][0][2] if meta_result["top3_tiles"] else 0
+
+        # Compute tile center position for blending
+        if meta_result["top3_tiles"]:
+            best_tx, best_ty, _ = meta_result["top3_tiles"][0]
+            tile_center_lat, tile_center_lon = tile_to_latlon(
+                best_tx + 0.5, best_ty + 0.5, self.cfg.TMS_ZOOM_LEVEL)
+            dist_tile_to_ekf = _hav(tile_center_lat, tile_center_lon,
+                                    ekf_pos[0], ekf_pos[1])
+        else:
+            tile_center_lat, tile_center_lon = ekf_pos
+            dist_tile_to_ekf = 9999
+
+        # Hard gate: only blend when tile center is BOTH high-scoring AND close to EKF.
+        # Simulation predicts full visual weight=1.0 yields best result (188.6m).
+        if match_score > 150 and dist_tile_to_ekf < 200:
+            visual_weight = 1.0  # very high confidence (92% correct)
+            blend_pos = (tile_center_lat, tile_center_lon)
+        else:
+            visual_weight = 0.0  # pure EKF
+            blend_pos = ekf_pos
+
+        final_position = (
+            visual_weight * blend_pos[0] + (1 - visual_weight) * ekf_pos[0],
+            visual_weight * blend_pos[1] + (1 - visual_weight) * ekf_pos[1],
+        )
 
         unc = self.particle_filter.get_uncertainty()
         elapsed = time.perf_counter() - t0
@@ -294,9 +381,20 @@ class TemporalSearcher:
     def _imu_fallback_result(self, imu_data: Dict, timestamp: float,
                              elapsed: float, unc: Dict,
                              reason: str) -> Dict:
+        # Use particle filter estimate if available (maintains continuity
+        # with previous visual corrections) instead of raw EKF position.
+        if self.particle_filter is not None:
+            est_x, est_y, est_hdg = self.particle_filter.get_estimate()
+            from src.tile_utils import tile_to_latlon
+            fb_lat, fb_lon = tile_to_latlon(
+                est_x, est_y, self.cfg.TMS_ZOOM_LEVEL)
+            fb_heading = est_hdg
+        else:
+            fb_lat, fb_lon = imu_data["lat"], imu_data["lon"]
+            fb_heading = imu_data["heading"]
         return {
-            "position": (imu_data["lat"], imu_data["lon"]),
-            "heading": imu_data["heading"],
+            "position": (fb_lat, fb_lon),
+            "heading": fb_heading,
             "score": 0,
             "tiles_tested": 0,
             "search_time": elapsed,
@@ -366,7 +464,7 @@ class TemporalSearcher:
         log_dir = Path(self.cfg.LOG_OUTPUT_DIR)
         log_dir.mkdir(parents=True, exist_ok=True)
         self._log_path = log_dir / f"pipeline3_run_{timestamp:.3f}.jsonl"
-        self._log_fh = open(self._log_path, "a")
+        self._log_fh = open(self._log_path, "w")
 
     def _write_log(self, result: Dict, imu_data: Dict, timestamp: float):
         self._open_log(timestamp)
