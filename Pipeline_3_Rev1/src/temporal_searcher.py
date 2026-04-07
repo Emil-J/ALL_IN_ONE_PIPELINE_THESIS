@@ -388,8 +388,10 @@ class TemporalSearcher:
 
         # Step 7 — Semantic double-confirmation
         # (query_semantic_map already computed in Step 3b above)
+        # Use prediction meta-tile when available (faster, no model inference)
         confirm_result = self.semantic_confirmer.confirm(
-            query_semantic_map, meta_result["meta_tile"])
+            query_semantic_map, meta_result["meta_tile"],
+            prediction_meta_tile=meta_result.get("prediction_meta_tile"))
 
         # Step 8 — Get final estimate
         est_x, est_y, est_hdg = self.particle_filter.get_estimate()

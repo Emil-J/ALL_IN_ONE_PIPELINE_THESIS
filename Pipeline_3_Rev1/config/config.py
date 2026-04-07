@@ -57,11 +57,11 @@ TMS_ZOOM_LEVEL = 16
 TMS_TILE_SIZE_PX = 512  # pixels per tile
 EARTH_RADIUS_METERS = 6371000.0
 
-# Tile coordinate ranges for the reference map
-TILE_X_MIN = 34494
-TILE_X_MAX = 34508
-TILE_Y_MIN = 45025
-TILE_Y_MAX = 45042
+# Tile coordinate ranges for the reference map (matches tiles on disk)
+TILE_X_MIN = 34482
+TILE_X_MAX = 34547
+TILE_Y_MIN = 45003
+TILE_Y_MAX = 45062
 
 # Approximate tile size in meters at latitude ~55.7°N, zoom 16
 # Formula: (circumference * cos(lat)) / 2^zoom

@@ -167,6 +167,55 @@ class MetaTileBuilder:
                    col * tile_px:(col + 1) * tile_px] = img
         return canvas
 
+    # ─── 10.4b Build prediction meta-tile ────────────────────────
+
+    def build_prediction_meta_tile(
+        self, top3_tiles: List[Tuple[int, int, int]]
+    ) -> Optional[np.ndarray]:
+        """
+        Stitch prediction tiles corresponding to top-K aerial tiles.
+
+        Uses pre-computed color-coded prediction PNGs from disk instead of
+        re-running UNet++ segmentation.  This is faster and uses the
+        higher-quality offline predictions.
+
+        Returns:
+            (H, W, 3) uint8 RGB prediction canvas, or None if no prediction
+            tiles are available.
+        """
+        # Check if any prediction tiles exist for the top-K
+        found_any = False
+        for tx, ty, _ in top3_tiles:
+            if self.tiles.load_prediction(tx, ty) is not None:
+                found_any = True
+                break
+        if not found_any:
+            return None
+
+        xs = [t[0] for t in top3_tiles]
+        ys = [t[1] for t in top3_tiles]
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        cols = x_max - x_min + 1
+        rows = y_max - y_min + 1
+        tile_px = self.cfg.TMS_TILE_SIZE_PX
+
+        canvas = np.zeros((rows * tile_px, cols * tile_px, 3), dtype=np.uint8)
+        for tx, ty, _ in top3_tiles:
+            pred_img = self.tiles.load_prediction(tx, ty)
+            if pred_img is None:
+                continue
+            # Ensure 3-channel RGB
+            if pred_img.ndim == 2:
+                pred_img = np.stack([pred_img]*3, axis=-1)
+            elif pred_img.shape[2] == 4:
+                pred_img = pred_img[:, :, :3]
+            col = tx - x_min
+            row = y_max - ty  # north-up
+            canvas[row * tile_px:(row + 1) * tile_px,
+                   col * tile_px:(col + 1) * tile_px] = pred_img[:, :, :3]
+        return canvas
+
     # ─── 10.5  Save meta-tile ────────────────────────────────────
 
     def save_meta_tile(self, meta_tile: np.ndarray,
@@ -243,6 +292,9 @@ class MetaTileBuilder:
         # Step 3 — build meta-tile
         meta_tile = self.build_meta_tile(top_k)
 
+        # Step 3b — build prediction meta-tile (pre-computed, no model inference)
+        prediction_meta_tile = self.build_prediction_meta_tile(top_k)
+
         # Step 4 — save to disk (always, before verification)
         meta_tile_path = self.save_meta_tile(meta_tile, query_timestamp)
 
@@ -253,6 +305,7 @@ class MetaTileBuilder:
 
         return {
             "meta_tile": meta_tile,
+            "prediction_meta_tile": prediction_meta_tile,
             "meta_tile_path": meta_tile_path,
             "top3_tiles": top_k,
             "verification_matches": match_count,
