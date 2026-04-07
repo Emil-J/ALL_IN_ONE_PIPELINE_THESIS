@@ -95,7 +95,7 @@ COLOR_MAP = {
 # FEATURE MATCHER (SuperPoint + LightGlue)
 # ═══════════════════════════════════════════════════════════════════
 
-MAX_NUM_KEYPOINTS = 2048
+MAX_NUM_KEYPOINTS = 4096
 MIN_MATCHES_FOR_HOMOGRAPHY = 4
 RANSAC_REPROJ_THRESH = 8.0
 
@@ -147,23 +147,6 @@ FIRST_PASS_SEARCH_RADIUS_M = 500.0
 SECOND_PASS_NEIGHBOURS = 8
 METATILE_TOP_K = 3
 METATILE_MATCH_THRESHOLD = 25  # initial hypothesis — tune from logs
-
-# ═══════════════════════════════════════════════════════════════════
-# PHASE B1: VISUAL MEASUREMENT / ROTATION
-# ═══════════════════════════════════════════════════════════════════
-
-MAX_ROTATED_DIMENSION = 1280  # resize rotated query to cap long edge (perf)
-QUALITY_GATE_CSHAPE = 0.3     # min shape confidence to trust visual measurement
-QUALITY_GATE_INLIERS = 20     # min inlier count to trust visual measurement
-NEAR_NADIR_THRESHOLD_RAD = 0.087  # ~5 degrees — use nadir_corrected when pitch/roll below this
-
-# ═══════════════════════════════════════════════════════════════════
-# ONLINE EKF VISUAL POSITION UPDATE
-# ═══════════════════════════════════════════════════════════════════
-
-VISUAL_POSITION_NOISE_M = 50.0     # R_pos std-dev: how much we trust visual measurements
-POSITION_PROCESS_NOISE_M = 5.0     # Q_pos std-dev: how fast position uncertainty grows per √s
-INITIAL_POSITION_VARIANCE_M = 200.0  # P[8:10] init: starting position uncertainty
 
 # ═══════════════════════════════════════════════════════════════════
 # SEMANTIC CONFIRMATION CONFIGURATION

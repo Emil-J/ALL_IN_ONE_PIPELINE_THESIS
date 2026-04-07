@@ -125,7 +125,7 @@ class MetaTileBuilder:
             if img is None:
                 continue
             col = tx - x_min
-            row = y_max - ty  # north-up: northernmost tile (y_max) at row 0
+            row = ty - y_min
             canvas[row * tile_px:(row + 1) * tile_px,
                    col * tile_px:(col + 1) * tile_px] = img
         return canvas

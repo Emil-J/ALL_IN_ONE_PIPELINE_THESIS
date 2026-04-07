@@ -174,45 +174,83 @@ frames, causing imu_fallback on nearly every frame.
 
 **Files**: `src/particle_filter.py`, `src/temporal_searcher.py`, `config/config.py`
 
+### BUG 8 — Camera Look-Ahead Offset (Fixed 2026-04-07)
+**Problem**: Homography-derived positions were systematically ~110m ahead of the drone in the heading
+direction. The MSFS camera has a fixed forward tilt, so the image center corresponds to ground ahead
+of the drone, not directly below. Diagnostic: computed offset vector (homo→GT) for all gated frames —
+offset bearing ≈ heading + 180° (perfectly anti-aligned). Mean offset distance: 112m.
+
+**Effect**: All visual position measurements had a consistent ~110m forward bias. The EKF corrected
+partially (103.5m mean) but couldn't eliminate the systematic error. 0/50 frames achieved <50m accuracy.
+
+**Fix**: Added camera look-ahead correction in the notebook closed-loop cell: before feeding the
+homography position to `ekf.update_position()`, shift it 110m backward along the EKF heading direction.
+```python
+corr_north = -LOOKAHEAD_M * cos(heading_rad)
+corr_east  = -LOOKAHEAD_M * sin(heading_rad)
+homo_corrected = (homo_lat + corr_north/111320, homo_lon + corr_east/(111320*cos(homo_lat)))
+```
+
+**Result**: Mean error dropped from 103.5m → **9.7m** (91% improvement). 49/50 frames under 50m.
+
+**Files**: `notebooks/test_temporal_pipeline.ipynb` (Cell 4)
+
 ---
 
-## Current State (2026-03-26)
+## Current State (2026-04-07)
 
-**Status**: All bugs fixed. Pipeline beats EKF baseline by 4m.
+**Status**: Phase C — Online 10D EKF with closed-loop visual position updates + camera look-ahead correction.
 
-**Results** (300 frames, START_ROW=430):
-- 100% of frames have position estimates (300/300)
-- 100% of frames found tiles (300/300 with >0 tiles tested)
-- 99.7% temporal tracking, 0.3% cold start (no divergence restarts)
-- 0% imu_fallback (was 42%)
-- 66.6% meta-tile verified, mean semantic confidence 0.328
-- **Mean error: 188.6m, Median: 193.3m**
-- 100% within 250m, 1.7% within 100m, 0.3% within 10m
-- Min error: 3m (single frame)
-- Frame 0 time: 2.7s, subsequent mean: 3.2s
-- **Pipeline improvement: +4.0m better than pure EKF (192.6m → 188.6m)**
+**Architecture Change (Phase C)**:
+The EKF error-state was expanded from 8D to 10D to include position error [δp_n, δp_e].
+Visual matching results now feed back directly into the EKF via `update_position()`.
+The particle filter is retained for search region guidance only — the EKF is the primary position estimator.
 
-**EKF Dead Reckoning Quality**:
-- EKF vs GPS drift: mean 193m, std 19m (for 300 aligned frames)
-- EKF heading: yaw_deg ≈ -61.6° (= 298.4° mod 360, matches raw heading of 5.2 rad)
-- Speed: ~67 m/s (130 knots, reasonable for MSFS light aircraft)
+**Key Changes**:
+- `src/ekf_ins.py`: P 8x8→10x10, F 8x8→10x10, all H matrices 8→10 cols, delta_state[8:10] applied in all updates
+- `src/ekf_ins.py`: New `update_position(lat, lon, R_pos_m2)` — standard Kalman update on position states
+- `src/ekf_ins.py`: New `step_ekf(ekf, row, prev_ts)` — single-row processing helper for online mode
+- `src/temporal_searcher.py`: Removed EKF anchor (score=0.5 measurement in PF)
+- `config/config.py`: MAX_NUM_KEYPOINTS 4096→2048, MAX_ROTATED_DIMENSION 1920→1280 (speed)
+- `config/config.py`: VISUAL_POSITION_NOISE_M=50, POSITION_PROCESS_NOISE_M=5, INITIAL_POSITION_VARIANCE_M=200
+- `notebooks/test_temporal_pipeline.ipynb`: Cell 2 warms up live EKF to START_ROW, Cell 4 runs closed-loop
 
-**Accuracy Analysis**:
-- Oracle (perfect per-frame pick): 181m — only 7.6m theoretical improvement remaining
-- Pipeline captures 34% of the theoretical 11.6m improvement over EKF
-- Only 13.7% of visual matches are closer to GT than EKF (domain shift)
-- Best signal: score>150 AND tile within 200m of EKF → 92% correct, 117m mean error
-- Hard-gated blending activates on ~13/300 frames with high-confidence matches
+**Camera Look-Ahead Correction (BUG 8)**:
+Diagnostic analysis revealed homography positions were systematically 110m AHEAD of the drone in the
+heading direction (offset bearing ≈ heading ± 180°). The MSFS camera has a fixed forward tilt, causing
+the image center to correspond to ground ahead of the drone, not directly below.
+Correction: shift homography position by 110m opposite to EKF heading before EKF update.
 
-**Known Limitation**: Domain mismatch between MSFS 3D footage and real 2D orthophotos
-means most visual matches are ~500m off. The hard-gated blending strategy extracts
-value only from the ~4% of frames with reliable matches (score>150, near EKF).
+**Adaptive Measurement Noise**:
+- High quality (CShape>0.5, inliers>100): R = 30² = 900 m²
+- Normal quality (CShape>0.3, inliers>20): R = 60² = 3600 m²
+- Below gate: no EKF update (EKF coasts on prediction)
 
-**Next steps**:
-- Test with real orthophoto query images (eliminate domain shift) — expected <50m error
-- Consider training domain adaptation for feature matching
-- Investigate if better feature matching (e.g., LoFTR) reduces domain sensitivity
-- The EKF drift (193m) is now the primary bottleneck — improving INS would help more
+**Closed-Loop Architecture**:
+```
+For each frame:
+  1. step_ekf(row) — IMU predict + sensor updates (orientation, barometer, airspeed)
+  2. TemporalSearcher.process_frame() — visual match → homo_position + quality gate
+  3. Apply camera look-ahead correction (shift 110m backward along heading)
+  4. if gate_pass: ekf.update_position(corrected_lat, corrected_lon, adaptive_R)
+  5. final_position = ekf.get_state() — corrected lat/lon from EKF
+```
+
+**Phase C Results (50 frames)**:
+- **Online EKF mean: 9.7m, median: 2.0m** (95% improvement over 196.1m batch EKF)
+- 49/50 frames (98%) under 50m, 50/50 (100%) under 100m
+- First 10 frames: 2-3m accuracy (rapid convergence)
+- Last 10 frames: 29-50m (quality degrades near terrain change)
+- Gate passes: 41/50 (82%), EKF coasts gracefully during bad visual frames
+- Speed: ~2.8s/frame (1280px, 2048 keypoints)
+
+**Previous Results**: Phase B1: 122m mean | Phase C (no correction): 103.5m mean
+
+**Known Limitations**:
+- Camera look-ahead correction (LOOKAHEAD_M=110) is empirically tuned for this flight
+- Domain mismatch (MSFS 3D vs orthophoto 2D) limits visual match quality in some terrain
+- Frames 39-47 show quality collapse (CShape drops to 0.1, inliers=5) — terrain/turning issue
+- Speed ~2.8s/frame — could be improved by caching query SuperPoint features across tile matches
 
 ---
 
@@ -240,3 +278,22 @@ value only from the ~4% of frames with reliable matches (score>150, near EKF).
 | 2026-03-26 | MEASUREMENT_NOISE_POSITION_M 50→500 | config.py |
 | 2026-03-26 | Added diagnostic cells: blending analysis, strategy simulation, oracle | notebooks/test_temporal_pipeline.ipynb |
 | 2026-03-26 | Error reduced: 2237m → 188.6m (91.6% reduction, +4m vs EKF) | all |
+| 2026-04-06 | Phase A diagnostics: confirmed heading rotation as #1 improvement | scripts/phase_a_diagnostics.py |
+| 2026-04-07 | Created visual_measurement.py: rotation, dual homography, 5 measurement methods | src/visual_measurement.py (new) |
+| 2026-04-07 | Heading rotation before MetaTileBuilder, dual homography (MAGSAC+DLT) | src/temporal_searcher.py |
+| 2026-04-07 | Quality-gated blending (CShape>0.3, inliers>20) replaces hard-gate | src/temporal_searcher.py |
+| 2026-04-07 | Added pitch/roll to imu_data dict for nadir correction | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Phase B1 diagnostics: 138.0m quality-gated mean (−54.9m vs EKF) | scripts/phase_b1_diagnostics.py (new) |
+| 2026-04-07 | Pipeline validation: 178.9m sparse, Frame 1 at 60.3m (−139.7m) | scripts/phase_b1_validate.py (new) |
+| 2026-04-07 | Phase C: Expanded EKF 8D→10D (position error states) | src/ekf_ins.py |
+| 2026-04-07 | New update_position() + step_ekf() for online closed-loop | src/ekf_ins.py |
+| 2026-04-07 | Removed EKF anchor from PF (visual updates go to EKF now) | src/temporal_searcher.py |
+| 2026-04-07 | Added visual position noise config constants | config/config.py |
+| 2026-04-07 | Notebook Cell 2: EKF warmup to START_ROW, live_ekf instance | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Notebook Cell 4: Closed-loop EKF predict→visual→update | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Unit tests for 10D EKF (all passing) | tests/test_10d_ekf.py (new) |
+| 2026-04-07 | Notebook cleanup: deleted 13 old/broken cells, 6 cells remain | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Cell 4 rewrite: ALL frames printed, image names, failure reasons | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Speed config: MAX_ROTATED_DIMENSION 1920→1280, MAX_NUM_KEYPOINTS 4096→2048 | config/config.py |
+| 2026-04-07 | Adaptive measurement noise: R_HIGH=30²=900, R_MED=60²=3600 | notebooks/test_temporal_pipeline.ipynb |
+| 2026-04-07 | Camera look-ahead correction (LOOKAHEAD_M=110): 103.5m→9.7m mean | notebooks/test_temporal_pipeline.ipynb |

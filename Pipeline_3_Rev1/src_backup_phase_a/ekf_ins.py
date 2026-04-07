@@ -168,11 +168,10 @@ class ErrorStateEKF:
         self.innovation_history = []
         self.convergence_window = 50
 
-        # Covariance: 10D [orientation error (3), bias error (3), wind (2), position error NE (2)]
-        self.P = np.eye(10) * 0.5
+        # Covariance: 8D [orientation error (3), bias error (3), wind (2)]
+        self.P = np.eye(8) * 0.5
         self.P[3:6, 3:6] = np.eye(3) * 0.01
         self.P[6:8, 6:8] = np.eye(2) * (5.0)**2
-        self.P[8:10, 8:10] = np.eye(2) * (200.0)**2  # initial position uncertainty
 
         self.g_n = np.array([0, 0, 9.81])
 
@@ -221,17 +220,21 @@ class ErrorStateEKF:
 
         R_nb = quat_to_rotation_matrix(self.q_tilde)
 
+        Q_full = np.block([
+            [self.Q_gyro, np.zeros((3, 3)), np.zeros((3, 2))],
+            [np.zeros((3, 3)), self.Q_gyro_bias, np.zeros((3, 2))],
+            [np.zeros((2, 3)), np.zeros((2, 3)), self.Q_wind]
+        ])
+
         G_theta = dt * R_nb
 
-        F = np.eye(10)
+        F = np.eye(8)
         F[0:3, 3:6] = 0.5 * dt * R_nb
-        # F[8:10, 8:10] = I_2 (already from np.eye)
 
         self.P = F @ self.P @ F.T
         self.P[0:3, 0:3] += G_theta @ self.Q_gyro @ G_theta.T
         self.P[3:6, 3:6] += self.Q_gyro_bias * dt
         self.P[6:8, 6:8] += self.Q_wind * dt
-        self.P[8:10, 8:10] += np.eye(2) * (5.0)**2 * dt  # position process noise
 
         # Maneuver detection
         accel_ned = R_nb @ accel_body
@@ -261,7 +264,7 @@ class ErrorStateEKF:
 
         H_accel = R_bn @ skew(self.g_n)
         H_accel[:, 2] = 0.0
-        H_accel_full = np.hstack([H_accel, np.zeros((3, 3)), np.zeros((3, 2)), np.zeros((3, 2))])
+        H_accel_full = np.hstack([H_accel, np.zeros((3, 3)), np.zeros((3, 2))])
 
         S_accel = H_accel_full @ self.P @ H_accel_full.T + R_accel
         K_accel = self.P @ H_accel_full.T @ np.linalg.inv(S_accel)
@@ -275,8 +278,6 @@ class ErrorStateEKF:
         self.gyro_bias += delta_accel[3:6]
         self.wind_n += delta_accel[6]
         self.wind_e += delta_accel[7]
-        self.pos_n += delta_accel[8]
-        self.pos_e += delta_accel[9]
 
         # Magnetometer update (heading)
         _, _, yaw_ekf = quat_to_euler(self.q_tilde)
@@ -286,7 +287,7 @@ class ErrorStateEKF:
         innovation_heading = heading_meas - heading_expected
         innovation_heading = np.arctan2(np.sin(innovation_heading), np.cos(innovation_heading))
 
-        H_mag_full = np.array([[0, 0, 1, 0, 0, 0, 0, 0, 0, 0]])
+        H_mag_full = np.array([[0, 0, 1, 0, 0, 0, 0, 0]])
         R_mag_scalar = np.array([[self.R_mag[0, 0]]])
 
         S_mag = H_mag_full @ self.P @ H_mag_full.T + R_mag_scalar
@@ -301,8 +302,6 @@ class ErrorStateEKF:
         self.gyro_bias += delta_mag[3:6]
         self.wind_n += delta_mag[6]
         self.wind_e += delta_mag[7]
-        self.pos_n += delta_mag[8]
-        self.pos_e += delta_mag[9]
 
         bias_mag = np.linalg.norm(self.gyro_bias)
         if bias_mag > self.max_gyro_bias:
@@ -329,7 +328,7 @@ class ErrorStateEKF:
 
         innovation = z - h
 
-        H = np.zeros((2, 10))
+        H = np.zeros((2, 8))
         H[0, 6] = 1.0
         H[1, 7] = 1.0
 
@@ -355,9 +354,6 @@ class ErrorStateEKF:
 
         self.wind_n += delta_wind[0]
         self.wind_e += delta_wind[1]
-
-        self.pos_n += delta_state[8]
-        self.pos_e += delta_state[9]
 
         # Wind magnitude constraint (0 wind in sim)
         wind_magnitude = np.sqrt(self.wind_n**2 + self.wind_e**2)
@@ -394,56 +390,6 @@ class ErrorStateEKF:
         # Position update (deferred from predict)
         self.pos_n += self.vel_n * self.last_dt
         self.pos_e += self.vel_e * self.last_dt
-
-    def update_position(self, lat_meas, lon_meas, R_pos_m2=None):
-        """Visual position measurement update.
-
-        Converts measured lat/lon → NED, computes innovation against
-        current pos_n/pos_e, and runs a standard Kalman update on error
-        states [8:10].
-
-        Args:
-            lat_meas: Measured latitude (degrees)
-            lon_meas: Measured longitude (degrees)
-            R_pos_m2: Measurement noise variance in m² (scalar or 2x2).
-                       Default 100² = 10 000 m².
-        """
-        if R_pos_m2 is None:
-            R_pos_m2 = 100.0**2
-
-        # Convert measurement to NED relative to EKF origin
-        meas_n = (np.radians(lat_meas) - self.lat0_rad) * self.R_earth
-        meas_e = (np.radians(lon_meas) - self.lon0_rad) * self.R_earth * np.cos(self.lat0_rad)
-
-        z = np.array([meas_n, meas_e])
-        h = np.array([self.pos_n, self.pos_e])
-        innovation = z - h
-
-        # H: position error states are at indices 8,9
-        H = np.zeros((2, 10))
-        H[0, 8] = 1.0
-        H[1, 9] = 1.0
-
-        if np.isscalar(R_pos_m2):
-            R = np.eye(2) * R_pos_m2
-        else:
-            R = np.array(R_pos_m2).reshape(2, 2)
-
-        S = H @ self.P @ H.T + R
-        K = self.P @ H.T @ np.linalg.inv(S)
-
-        delta_state = K @ innovation
-        self.P = self.P - K @ S @ K.T
-
-        # Apply corrections
-        dq = expq(delta_state[0:3])
-        self.q_tilde = quat_multiply(dq, self.q_tilde)
-        self.q_tilde = quat_normalize(self.q_tilde)
-        self.gyro_bias += delta_state[3:6]
-        self.wind_n += delta_state[6]
-        self.wind_e += delta_state[7]
-        self.pos_n += delta_state[8]
-        self.pos_e += delta_state[9]
 
     def get_state(self):
         lat_rad = self.lat0_rad + self.pos_n / self.R_earth
@@ -498,62 +444,6 @@ class ErrorStateEKF:
 # ═══════════════════════════════════════════════════════════════════
 # SHARED EKF PROCESSING CORE
 # ═══════════════════════════════════════════════════════════════════
-
-def step_ekf(ekf, row, prev_timestamp=None):
-    """Process a single IMU row through the EKF (predict + all sensor updates).
-
-    This is the loop body extracted from _run_ekf_core, suitable for online
-    (step-by-step) processing.  Does NOT call record_state() — caller decides.
-
-    Args:
-        ekf: ErrorStateEKF instance (mutated in place)
-        row: dict-like with keys: timestamp, accel_x/y/z, gyro_x/y/z,
-             heading_magnetic, pitch, bank, barometer_pressure,
-             optionally airspeed_true
-        prev_timestamp: timestamp of the previous row (for dt).
-                        If None, dt=0 (first row).
-
-    Returns:
-        state dict from ekf.get_state()
-    """
-    g = 9.81
-    timestamp = row['timestamp']
-    dt = 0.0 if prev_timestamp is None else (timestamp - prev_timestamp)
-
-    # ── MSFS axis mapping (left-handed body → right-handed NED body) ──
-    accel_x_msfs = row['accel_x'] * 0.3048
-    accel_y_msfs = row['accel_y'] * 0.3048
-    accel_z_msfs = row['accel_z'] * 0.3048
-
-    pitch_rad = row['pitch']
-    bank_rad  = row['bank']
-
-    g_body = np.array([
-        -g * np.sin(pitch_rad),
-         g * np.sin(bank_rad) * np.cos(pitch_rad),
-         g * np.cos(bank_rad) * np.cos(pitch_rad)
-    ])
-
-    accel_body = np.array([accel_z_msfs, accel_x_msfs, -accel_y_msfs]) + g_body
-
-    omega_meas = np.array([row['gyro_z'], row['gyro_x'], row['gyro_y']])
-
-    # ── Predict ──
-    ekf.predict(omega_meas, accel_body, dt)
-
-    # ── Measurement updates ──
-    baro_alt = barometric_altitude(row['barometer_pressure'])
-    ekf.update_barometer(baro_alt, timestamp)
-
-    mag_heading_deg = np.degrees(row['heading_magnetic'])
-    ekf.update_accel_mag(accel_body, mag_heading_deg)
-
-    airspeed = row.get('airspeed_true', None)
-    if airspeed is not None and not (isinstance(airspeed, float) and np.isnan(airspeed)):
-        ekf.update_airspeed(airspeed, mag_heading_deg)
-
-    return ekf.get_state()
-
 
 def _run_ekf_core(df):
     """

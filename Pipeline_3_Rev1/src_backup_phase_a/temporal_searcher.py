@@ -15,20 +15,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import cv2
 
-from src.tile_utils import (
-    TileLoader, tile_to_latlon, tile_size_meters,
-    latlon_to_tile_float, haversine_distance,
-)
+from src.tile_utils import TileLoader, tile_to_latlon, tile_size_meters
 from src.image_utils import preprocess_query_frame
 from src.best_first_search import BestFirstSearcher
 from src.particle_filter import ParticleFilter
 from src.meta_tile_builder import MetaTileBuilder
 from src.semantic_confirmer import SemanticConfirmer
-from src.visual_measurement import (
-    rotate_image, compute_dual_homography, extract_visual_measurements,
-)
+from src.position_estimator import estimate_position
 
 logger = logging.getLogger(__name__)
 
@@ -104,95 +98,36 @@ class TemporalSearcher:
                          imu_data: Dict, timestamp: float) -> Dict:
         t0 = time.perf_counter()
 
-        # ── Phase B1: rotate query by heading for better matching ──
-        heading_deg = imu_data.get("heading", 0)
-        rotation_angle = -heading_deg
-        query_rotated, rot_M_fwd = rotate_image(query_frame, rotation_angle)
-
-        # Resize rotated image to cap performance cost
-        query_for_match = self._resize_rotated(query_rotated)
-
-        # BestFirstSearcher exhaustive search on rotated query
         searcher = BestFirstSearcher(self.matcher, self.tiles, self.cfg)
         search_result = searcher.search(
-            query_for_match, imu_data["lat"], imu_data["lon"])
+            query_frame, imu_data["lat"], imu_data["lon"])
 
         score = search_result["score"]
         position = search_result["position"]
-        ranked_tiles = search_result.get("ranked_tiles", [])
 
-        # ── Phase B1: dual homography + visual measurements on best match ──
-        homo_position = None
-        visual_quality = {"CShape": 0, "inliers": 0, "convex": False}
-
-        if search_result.get("match_result") and score >= 4:
-            mr = search_result["match_result"]
-            matches = mr["matches"]
-            if len(matches) >= 4:
-                src_pts = mr["keypoints1"][matches[:, 0]]
-                dst_pts = mr["keypoints2"][matches[:, 1]]
-                qh_m, qw_m = query_for_match.shape[:2]
-
-                dual = compute_dual_homography(
-                    src_pts, dst_pts, qw_m, qh_m,
-                    self.cfg.RANSAC_REPROJ_THRESH)
-
-                if dual["winner"] is not None:
-                    winner_branch = dual[dual["winner"]]
-                    visual_quality = {
-                        "CShape": winner_branch["CShape"],
-                        "inliers": winner_branch["inliers"],
-                        "convex": winner_branch["convex"],
-                    }
-
-                    # Use BFS best tile as single-tile reference for measurements
-                    best_tile = search_result.get("best_tile")
-                    if best_tile is not None:
-                        tiles_for_meas = [(best_tile[0], best_tile[1], score)]
-                        pitch_rad = imu_data.get("pitch", 0.0)
-                        roll_rad = imu_data.get("roll", 0.0)
-                        measurements_dict = extract_visual_measurements(
-                            dual["winner_H"], dual["winner_mask"],
-                            src_pts, dst_pts, qw_m, qh_m,
-                            tiles_for_meas,
-                            tile_px=self.cfg.TMS_TILE_SIZE_PX,
-                            zoom=self.cfg.TMS_ZOOM_LEVEL,
-                            pitch_rad=pitch_rad, roll_rad=roll_rad,
-                        )
-
-                        # Cascade: nadir (if near-nadir) > trimmed > inlier > weighted > projected
-                        cascade = self._build_cascade(pitch_rad, roll_rad)
-                        for mname in cascade:
-                            mdata = measurements_dict.get(mname, {})
-                            if mdata.get("valid") and mdata["latlon"][0] is not None:
-                                homo_position = mdata["latlon"]
-                                break
-
-        # ── Decide PF initialization position using quality gate ──
-        cshape = visual_quality["CShape"]
-        n_inliers = visual_quality["inliers"]
-        gate_pass = (cshape > self.cfg.QUALITY_GATE_CSHAPE
-                     and n_inliers > self.cfg.QUALITY_GATE_INLIERS
-                     and homo_position is not None)
-
-        if gate_pass:
-            init_lat, init_lon = homo_position
-            position = homo_position
+        # Determine initial spread based on match quality
+        if score >= 150:
             spread = self.cfg.PARTICLE_INIT_SPREAD_HIGH_CONF
-            logger.info("Cold-start quality gate PASSED (CShape=%.3f, inliers=%d) "
-                        "— using visual position", cshape, n_inliers)
-        elif score >= 100 and position:
-            init_lat, init_lon = position
+        elif score >= 100:
             spread = self.cfg.PARTICLE_INIT_SPREAD_MED_CONF
         else:
-            init_lat, init_lon = imu_data["lat"], imu_data["lon"]
             spread = self.cfg.PARTICLE_INIT_SPREAD_LOW_CONF
-            position = (init_lat, init_lon)
-            if score > 0:
-                logger.info("Cold-start score %d, CShape %.3f — using EKF position",
-                            score, cshape)
 
+        # Initialize particle filter
+        # Only trust visual cold-start if score >= 100.
+        # Low-score matches are likely wrong (domain shift) and
+        # initialising the PF there causes a large initial error.
+        if score >= 100 and position:
+            init_lat, init_lon = position
+        else:
+            init_lat, init_lon = imu_data["lat"], imu_data["lon"]
+            if position:
+                logger.info("Cold-start score %d < 100 — using EKF position", score)
         init_heading = imu_data["heading"]
+
+        # Also report position as EKF-based when visual was rejected
+        if score < 100:
+            position = (init_lat, init_lon)
 
         self.particle_filter = ParticleFilter(
             num_particles=self.cfg.NUM_PARTICLES,
@@ -228,7 +163,7 @@ class TemporalSearcher:
             "search_time": elapsed,
             "method": "cold_start",
             "best_tile": search_result.get("best_tile"),
-            "ranked_tiles": ranked_tiles,
+            "ranked_tiles": search_result.get("ranked_tiles", []),
             "meta_tile_path": None,
             "meta_tile_verified": None,
             "verification_matches": None,
@@ -236,10 +171,6 @@ class TemporalSearcher:
             "particle_spread": None,
             "n_eff": None,
             "query_semantic_map": query_semantic_map,
-            "visual_quality": visual_quality,
-            "gate_pass": gate_pass,
-            "homo_position": homo_position,
-            "pf_position": (init_lat, init_lon),
         }
 
     # ════════════════════════════════════════════════════════════
@@ -264,16 +195,9 @@ class TemporalSearcher:
             self.cfg.FIRST_PASS_SEARCH_RADIUS_M,
         )
 
-        # Step 3 — Rotate query by heading for better matching, then two-pass search
-        heading_deg = imu_data.get("heading", 0)
-        rotation_angle = -heading_deg
-        query_rotated, rot_M_fwd = rotate_image(query_frame, rotation_angle)
-
-        # Resize rotated image to cap performance cost
-        query_for_match = self._resize_rotated(query_rotated)
-
+        # Step 3 — Two-pass search via MetaTileBuilder (raw frame for feature matching)
         meta_result = self.meta_tile_builder.run(
-            query_frame=query_for_match,
+            query_frame=query_frame,
             imu_lat=center_lat,
             imu_lon=center_lon,
             query_timestamp=timestamp,
@@ -288,53 +212,40 @@ class TemporalSearcher:
                 imu_data, timestamp, elapsed, unc,
                 reason="no_first_pass_tiles")
 
-        # Step 4 — Dual homography + visual measurement extraction
+        # Step 4 — Compute homography BEFORE particle update (for sub-tile measurements)
         homo_position = None
-        homo_tile_pos = None
-        visual_quality = {"CShape": 0, "inliers": 0, "convex": False}
-        qh_rot, qw_rot = query_for_match.shape[:2]
-
+        homo_tile_pos = None  # fractional tile coords from homography
         if meta_result.get("match_result"):
-            mr = meta_result["match_result"]
-            matches = mr["matches"]
-            if len(matches) >= 4:
-                src_pts = mr["keypoints1"][matches[:, 0]]
-                dst_pts = mr["keypoints2"][matches[:, 1]]
-
-                dual = compute_dual_homography(
-                    src_pts, dst_pts, qw_rot, qh_rot,
-                    self.cfg.RANSAC_REPROJ_THRESH)
-
-                if dual["winner"] is not None:
-                    winner_branch = dual[dual["winner"]]
-                    visual_quality = {
-                        "CShape": winner_branch["CShape"],
-                        "inliers": winner_branch["inliers"],
-                        "convex": winner_branch["convex"],
-                    }
-
-                    # Extract visual measurements
-                    pitch_rad = imu_data.get("pitch", 0.0)
-                    roll_rad = imu_data.get("roll", 0.0)
-                    measurements_dict = extract_visual_measurements(
-                        dual["winner_H"], dual["winner_mask"],
-                        src_pts, dst_pts, qw_rot, qh_rot,
-                        meta_result["top3_tiles"],
-                        tile_px=self.cfg.TMS_TILE_SIZE_PX,
-                        zoom=self.cfg.TMS_ZOOM_LEVEL,
-                        pitch_rad=pitch_rad, roll_rad=roll_rad,
-                    )
-
-                    # Select best measurement using attitude-aware cascade
-                    cascade = self._build_cascade(pitch_rad, roll_rad)
-                    for mname in cascade:
-                        mdata = measurements_dict.get(mname, {})
-                        if mdata.get("valid") and mdata["latlon"][0] is not None:
-                            homo_position = mdata["latlon"]
-                            homo_tile_pos = latlon_to_tile_float(
-                                homo_position[0], homo_position[1],
-                                self.cfg.TMS_ZOOM_LEVEL)
-                            break
+            qh, qw = query_frame.shape[:2]
+            pos_est = estimate_position(
+                meta_result["match_result"],
+                meta_result["top3_tiles"],
+                query_w=qw,
+                query_h=qh,
+                tile_px=self.cfg.TMS_TILE_SIZE_PX,
+                zoom=self.cfg.TMS_ZOOM_LEVEL,
+                ransac_thresh=self.cfg.RANSAC_REPROJ_THRESH,
+                min_matches=self.cfg.MIN_MATCHES_FOR_HOMOGRAPHY,
+            )
+            if pos_est:
+                # Geometric sanity check: projected center must be within
+                # the meta-tile canvas bounds (reject degenerate H)
+                xs = [t[0] for t in meta_result["top3_tiles"]]
+                ys = [t[1] for t in meta_result["top3_tiles"]]
+                rx, ry = pos_est["ref_px"]
+                meta_w = (max(xs) - min(xs) + 1) * self.cfg.TMS_TILE_SIZE_PX
+                meta_h = (max(ys) - min(ys) + 1) * self.cfg.TMS_TILE_SIZE_PX
+                if 0 <= rx <= meta_w and 0 <= ry <= meta_h:
+                    homo_position = (pos_est["lat"], pos_est["lon"])
+                    # Convert to fractional tile coords for particle update
+                    from src.tile_utils import latlon_to_tile_float
+                    homo_tile_pos = latlon_to_tile_float(
+                        pos_est["lat"], pos_est["lon"],
+                        self.cfg.TMS_ZOOM_LEVEL)
+                else:
+                    logger.debug("Homography projected center (%.1f,%.1f) "
+                                 "outside meta-tile %dx%d — rejected",
+                                 rx, ry, meta_w, meta_h)
 
         # Step 5 — Extract measurements for particle update
         # Prefer homography sub-tile position when available;
@@ -342,7 +253,7 @@ class TemporalSearcher:
         MAX_SCORE = 50.0  # cap for normalization
         if homo_tile_pos is not None:
             # Use homography-derived sub-tile position (high confidence)
-            inlier_score = min(visual_quality["inliers"], MAX_SCORE) / MAX_SCORE
+            inlier_score = min(pos_est["inliers"], MAX_SCORE) / MAX_SCORE
             measurements = [
                 {"position": homo_tile_pos,
                  "heading": imu_data["heading"],
@@ -367,8 +278,17 @@ class TemporalSearcher:
             else:
                 measurements = []
 
-        # (EKF anchor removed — visual updates now feed back directly into
-        #  the online EKF in the notebook loop.  PF is for search region only.)
+        # EKF anchoring: add EKF dead-reckoned position as a moderate-
+        # confidence measurement.  This prevents spurious visual matches
+        # from pulling particles too far from the predicted trajectory.
+        from src.tile_utils import latlon_to_tile_float
+        ekf_tile_pos = latlon_to_tile_float(
+            imu_data["lat"], imu_data["lon"], self.cfg.TMS_ZOOM_LEVEL)
+        measurements.append({
+            "position": ekf_tile_pos,
+            "heading": imu_data["heading"],
+            "score": 0.5,  # moderate confidence for EKF anchor
+        })
 
         # Step 6 — Update particle filter
         self.particle_filter.update(measurements)
@@ -393,24 +313,38 @@ class TemporalSearcher:
         # Use homography position if available, else particle estimate
         visual_position = homo_position or (est_lat, est_lon)
 
-        # Step 9 — Quality-gated blending (Phase B1).
-        # When visual quality is high, trust the visual measurement directly.
-        # When quality is low, fall back to the particle filter estimate
-        # (NOT raw EKF) — the PF carries forward previous visual corrections.
+        # Step 9 — Hard-gated EKF/visual blending.
+        # Analysis shows: score>150 AND dist<200m → 92% correct, 117m error.
+        # Use tile center (validated by analysis) rather than homography position.
+        from src.tile_utils import haversine_distance as _hav
         ekf_pos = (imu_data["lat"], imu_data["lon"])
-        pf_pos = (est_lat, est_lon)
 
-        cshape = visual_quality["CShape"]
-        n_inliers = visual_quality["inliers"]
+        match_score = meta_result["top3_tiles"][0][2] if meta_result["top3_tiles"] else 0
 
-        if (cshape > self.cfg.QUALITY_GATE_CSHAPE
-                and n_inliers > self.cfg.QUALITY_GATE_INLIERS
-                and homo_position is not None):
-            # High-quality visual: use it directly
-            final_position = homo_position
+        # Compute tile center position for blending
+        if meta_result["top3_tiles"]:
+            best_tx, best_ty, _ = meta_result["top3_tiles"][0]
+            tile_center_lat, tile_center_lon = tile_to_latlon(
+                best_tx + 0.5, best_ty + 0.5, self.cfg.TMS_ZOOM_LEVEL)
+            dist_tile_to_ekf = _hav(tile_center_lat, tile_center_lon,
+                                    ekf_pos[0], ekf_pos[1])
         else:
-            # Low-quality or no visual: use PF estimate (preserves visual drift correction)
-            final_position = pf_pos
+            tile_center_lat, tile_center_lon = ekf_pos
+            dist_tile_to_ekf = 9999
+
+        # Hard gate: only blend when tile center is BOTH high-scoring AND close to EKF.
+        # Simulation predicts full visual weight=1.0 yields best result (188.6m).
+        if match_score > 150 and dist_tile_to_ekf < 200:
+            visual_weight = 1.0  # very high confidence (92% correct)
+            blend_pos = (tile_center_lat, tile_center_lon)
+        else:
+            visual_weight = 0.0  # pure EKF
+            blend_pos = ekf_pos
+
+        final_position = (
+            visual_weight * blend_pos[0] + (1 - visual_weight) * ekf_pos[0],
+            visual_weight * blend_pos[1] + (1 - visual_weight) * ekf_pos[1],
+        )
 
         unc = self.particle_filter.get_uncertainty()
         elapsed = time.perf_counter() - t0
@@ -438,38 +372,7 @@ class TemporalSearcher:
             "particle_spread": unc["position_std_m"],
             "n_eff": unc["n_eff"],
             "query_semantic_map": query_semantic_map,
-            "visual_quality": visual_quality,
-            "gate_pass": (cshape > self.cfg.QUALITY_GATE_CSHAPE
-                          and n_inliers > self.cfg.QUALITY_GATE_INLIERS
-                          and homo_position is not None),
-            "homo_position": homo_position,
-            "pf_position": pf_pos,
         }
-
-    # ════════════════════════════════════════════════════════════
-    # Helpers
-    # ════════════════════════════════════════════════════════════
-
-    def _resize_rotated(self, img: np.ndarray) -> np.ndarray:
-        """Resize an image so its longest edge <= MAX_ROTATED_DIMENSION."""
-        max_dim = getattr(self.cfg, "MAX_ROTATED_DIMENSION", 1920)
-        h, w = img.shape[:2]
-        if max(h, w) <= max_dim:
-            return img
-        scale = max_dim / max(h, w)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-    @staticmethod
-    def _build_cascade(pitch_rad: float, roll_rad: float,
-                       threshold: float = 0.087) -> List[str]:
-        """Build measurement method cascade, prioritising nadir when near-nadir."""
-        base = ["trimmed_centroid", "inlier_centroid",
-                "weighted_centroid", "projected_center"]
-        if abs(pitch_rad) < threshold and abs(roll_rad) < threshold:
-            return ["nadir_corrected"] + base
-        return base
 
     # ════════════════════════════════════════════════════════════
     # IMU fallback
@@ -482,6 +385,7 @@ class TemporalSearcher:
         # with previous visual corrections) instead of raw EKF position.
         if self.particle_filter is not None:
             est_x, est_y, est_hdg = self.particle_filter.get_estimate()
+            from src.tile_utils import tile_to_latlon
             fb_lat, fb_lon = tile_to_latlon(
                 est_x, est_y, self.cfg.TMS_ZOOM_LEVEL)
             fb_heading = est_hdg

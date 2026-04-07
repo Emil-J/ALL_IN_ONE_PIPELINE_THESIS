@@ -22,6 +22,7 @@
 *.tar
 *.tar.gz
 *.7z
+*.pdf
 
 # ============================================================
 # IMAGES AND REFERENCE TILES (keep reference map on disk)
