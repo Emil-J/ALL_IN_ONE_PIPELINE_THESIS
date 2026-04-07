@@ -42,14 +42,26 @@ class MetaTileBuilder:
 
     def first_pass(self, query_frame: np.ndarray,
                    imu_lat: float, imu_lon: float,
-                   search_radius_m: float
+                   search_radius_m: float,
+                   query_feats=None,
+                   query_semantic_map=None,
                    ) -> List[Tuple[int, int, int]]:
         """
         Match query against every tile within *search_radius_m*.
 
+        Args:
+            query_feats: Pre-extracted SuperPoint features from
+                         matcher.extract_features().  Extracted here
+                         if not provided (for backward compatibility).
+            query_semantic_map: Optional class mask (H, W) uint8.  When
+                         provided, tiles are pre-filtered by semantic
+                         histogram similarity before SuperPoint matching.
+
         Returns:
             Ranked list of (tile_x, tile_y, match_count) descending.
         """
+        from src.semantic_tile_scorer import SemanticTileScorer
+
         candidates = find_tiles_within_radius(
             imu_lat, imu_lon, search_radius_m,
             zoom=self.cfg.TMS_ZOOM_LEVEL,
@@ -57,12 +69,29 @@ class MetaTileBuilder:
             y_range=(self.cfg.TILE_Y_MIN, self.cfg.TILE_Y_MAX),
         )
 
+        # Semantic pre-filter: rank candidates by histogram intersection,
+        # keep only the top-K for SuperPoint (much cheaper than running
+        # SuperPoint on all ~24 tiles).
+        if (query_semantic_map is not None
+                and getattr(self.cfg, 'SEMANTIC_PREFILTER_ENABLED', True)
+                and len(candidates) > getattr(self.cfg, 'SEMANTIC_PREFILTER_TOP_K', 10)):
+            top_k_sem = getattr(self.cfg, 'SEMANTIC_PREFILTER_TOP_K', 10)
+            scored = SemanticTileScorer.score_tiles(
+                query_semantic_map, candidates, self.tiles)
+            candidates = [(tx, ty) for tx, ty, _ in scored[:top_k_sem]]
+            logger.debug("Semantic pre-filter: %d → %d candidates",
+                         len(scored), len(candidates))
+
+        # Extract query features once if not already provided
+        if query_feats is None:
+            query_feats = self.matcher.extract_features(query_frame)
+
         results = []
         for tx, ty in candidates:
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue
-            match_res = self.matcher.match(query_frame, tile_img)
+            match_res = self.matcher.match_precomputed(query_feats, tile_img)
             results.append((tx, ty, match_res["num_matches"]))
 
         results.sort(key=lambda r: r[2], reverse=True)
@@ -71,21 +100,29 @@ class MetaTileBuilder:
     # ─── 10.3  Second pass (8-neighbours) ────────────────────────
 
     def second_pass(self, query_frame: np.ndarray,
-                    top_tile_x: int, top_tile_y: int
+                    top_tile_x: int, top_tile_y: int,
+                    query_feats=None,
                     ) -> List[Tuple[int, int, int]]:
         """
         Match query against top-1 tile + its 8 grid neighbours.
 
+        Args:
+            query_feats: Pre-extracted SuperPoint features (reused from
+                         first_pass).  Extracted here if not provided.
+
         Returns:
             Ranked list of (tile_x, tile_y, match_count) descending.
         """
+        if query_feats is None:
+            query_feats = self.matcher.extract_features(query_frame)
+
         neighbours = self._get_neighbours(top_tile_x, top_tile_y)
         results = []
         for tx, ty in neighbours:
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue
-            match_res = self.matcher.match(query_frame, tile_img)
+            match_res = self.matcher.match_precomputed(query_feats, tile_img)
             results.append((tx, ty, match_res["num_matches"]))
 
         results.sort(key=lambda r: r[2], reverse=True)
@@ -163,10 +200,16 @@ class MetaTileBuilder:
     def run(self, query_frame: np.ndarray,
             imu_lat: float, imu_lon: float,
             query_timestamp: float,
-            search_radius_m: Optional[float] = None) -> Optional[Dict]:
+            search_radius_m: Optional[float] = None,
+            query_semantic_map=None) -> Optional[Dict]:
         """
         Execute the full two-pass pipeline:
         first pass → second pass → build → save → verify.
+
+        Args:
+            query_semantic_map: Optional class mask (H,W) uint8.  When
+                provided, the first pass pre-filters tiles by semantic
+                histogram similarity before running SuperPoint.
 
         Returns:
             dict with meta_tile, meta_tile_path, top3_tiles,
@@ -176,9 +219,16 @@ class MetaTileBuilder:
         """
         radius = search_radius_m or self.cfg.FIRST_PASS_SEARCH_RADIUS_M
 
+        # Extract query SuperPoint features ONCE here; reused across all
+        # first-pass and second-pass tile matches (~33 tiles/frame).
+        query_feats = self.matcher.extract_features(query_frame)
+
         # Step 1 — first pass
         first_pass_results = self.first_pass(
-            query_frame, imu_lat, imu_lon, radius)
+            query_frame, imu_lat, imu_lon, radius,
+            query_feats=query_feats,
+            query_semantic_map=query_semantic_map,
+        )
         if not first_pass_results:
             logger.warning("MetaTileBuilder: no first-pass tiles for "
                            "(%.5f, %.5f) r=%.0f m", imu_lat, imu_lon, radius)
@@ -187,7 +237,7 @@ class MetaTileBuilder:
         # Step 2 — second pass on 8-neighbours of top-1
         top1_tx, top1_ty, _ = first_pass_results[0]
         second_pass_results = self.second_pass(
-            query_frame, top1_tx, top1_ty)
+            query_frame, top1_tx, top1_ty, query_feats=query_feats)
         top_k = second_pass_results[:self.cfg.METATILE_TOP_K]
 
         # Step 3 — build meta-tile

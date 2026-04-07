@@ -255,10 +255,12 @@ class TemporalSearcher:
         self.particle_filter.predict(
             dt, imu_data["velocity_mps"], imu_data["gyro_z_dps"])
 
-        # Step 2 — Get focused search region from particles
+        # Step 2 — Get search region.
+        # Use EKF lat/lon (imu_data) as the search CENTER — it has ~10m accuracy
+        # from the online closed-loop.  PF estimate still drives the search RADIUS
+        # so divergence only widens the search, rather than misplacing it.
         region = self.particle_filter.get_search_region()
-        center_lat, center_lon = tile_to_latlon(
-            region["center"][0], region["center"][1], self.cfg.TMS_ZOOM_LEVEL)
+        center_lat, center_lon = imu_data["lat"], imu_data["lon"]
         search_radius_m = max(
             region["radius_tiles"] * self.cfg.TILE_SIZE_METERS,
             self.cfg.FIRST_PASS_SEARCH_RADIUS_M,
@@ -272,12 +274,22 @@ class TemporalSearcher:
         # Resize rotated image to cap performance cost
         query_for_match = self._resize_rotated(query_rotated)
 
+        # Step 3b — Semantic segmentation (before tile search so pre-filter can use it)
+        query_processed = preprocess_query_frame(
+            query_frame,
+            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
+            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
+            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
+        )
+        query_semantic_map = self.semantic_model.predict(query_processed)
+
         meta_result = self.meta_tile_builder.run(
             query_frame=query_for_match,
             imu_lat=center_lat,
             imu_lon=center_lon,
             query_timestamp=timestamp,
             search_radius_m=search_radius_m,
+            query_semantic_map=query_semantic_map,
         )
 
         # Handle failure: no tiles found
@@ -374,14 +386,8 @@ class TemporalSearcher:
         self.particle_filter.update(measurements)
         self.particle_filter.resample()
 
-        # Step 7 — Semantic double-confirmation (preprocess for semantic model only)
-        query_processed = preprocess_query_frame(
-            query_frame,
-            resize_w=self.cfg.QUERY_RESIZE_WIDTH,
-            resize_h=self.cfg.QUERY_RESIZE_HEIGHT,
-            target_size=self.cfg.SEMANTIC_INPUT_SIZE,
-        )
-        query_semantic_map = self.semantic_model.predict(query_processed)
+        # Step 7 — Semantic double-confirmation
+        # (query_semantic_map already computed in Step 3b above)
         confirm_result = self.semantic_confirmer.confirm(
             query_semantic_map, meta_result["meta_tile"])
 
@@ -464,12 +470,16 @@ class TemporalSearcher:
     @staticmethod
     def _build_cascade(pitch_rad: float, roll_rad: float,
                        threshold: float = 0.087) -> List[str]:
-        """Build measurement method cascade, prioritising nadir when near-nadir."""
+        """Build measurement method cascade.
+
+        nadir_corrected is always first — it shifts the projected nadir
+        ground-point for both pitch and roll, and is MOST valuable when
+        the aircraft is banking.  The old restriction (only near-nadir)
+        was backwards.
+        """
         base = ["trimmed_centroid", "inlier_centroid",
                 "weighted_centroid", "projected_center"]
-        if abs(pitch_rad) < threshold and abs(roll_rad) < threshold:
-            return ["nadir_corrected"] + base
-        return base
+        return ["nadir_corrected"] + base
 
     # ════════════════════════════════════════════════════════════
     # IMU fallback

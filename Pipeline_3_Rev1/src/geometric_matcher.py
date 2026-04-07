@@ -49,12 +49,34 @@ class SuperPointLightGlueMatcher:
                 match_scores (K,) float array
                 num_matches  int
         """
-        tensor1 = _to_tensor_gray(img1, self.device)
-        tensor2 = _to_tensor_gray(img2, self.device)
+        feats0 = self.extract_features(img1)
+        feats1 = self.extractor.extract(_to_tensor_gray(img2, self.device))
+        return self._run_matcher(feats0, feats1)
 
-        feats0 = self.extractor.extract(tensor1)
-        feats1 = self.extractor.extract(tensor2)
+    @torch.no_grad()
+    def extract_features(self, img: np.ndarray) -> Dict:
+        """Extract SuperPoint features from a single image.
 
+        Call once per query frame and reuse with match_precomputed()
+        to avoid redundant extraction across many tile matches.
+        """
+        return self.extractor.extract(_to_tensor_gray(img, self.device))
+
+    @torch.no_grad()
+    def match_precomputed(self, feats0: Dict, img2: np.ndarray) -> Dict:
+        """Match pre-extracted query features against a new image.
+
+        Args:
+            feats0: Pre-computed features from extract_features().
+            img2:   Reference tile as HWC uint8 array.
+
+        Returns same dict format as match().
+        """
+        feats1 = self.extractor.extract(_to_tensor_gray(img2, self.device))
+        return self._run_matcher(feats0, feats1)
+
+    def _run_matcher(self, feats0: Dict, feats1: Dict) -> Dict:
+        """Run LightGlue on two pre-extracted feature dicts."""
         matches_out = self.matcher({"image0": feats0, "image1": feats1})
 
         kpts1 = feats0["keypoints"][0].cpu().numpy()

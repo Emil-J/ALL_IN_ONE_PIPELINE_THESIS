@@ -172,6 +172,13 @@ INITIAL_POSITION_VARIANCE_M = 200.0  # P[8:10] init: starting position uncertain
 CENTROID_MATCH_DISTANCE_THRESHOLD_PX = 50
 SEMANTIC_CONFIRM_MIN_PAIRS = 3
 
+# Semantic histogram pre-filter (Phase 4)
+# Run SemanticTileScorer on all first-pass candidates and keep only the
+# top-K before feeding to SuperPoint+LightGlue.  Disabled by default
+# until timing is verified on the target machine.
+SEMANTIC_PREFILTER_ENABLED = True
+SEMANTIC_PREFILTER_TOP_K = 10
+
 # ═══════════════════════════════════════════════════════════════════
 # EVALUATION
 # ═══════════════════════════════════════════════════════════════════
