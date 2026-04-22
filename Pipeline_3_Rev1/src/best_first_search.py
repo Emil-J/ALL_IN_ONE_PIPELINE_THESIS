@@ -31,16 +31,19 @@ class BestFirstSearcher:
     3. Rank by match count, return top result with position estimate.
     """
 
-    def __init__(self, feature_matcher, tile_loader: TileLoader, config):
+    def __init__(self, feature_matcher, tile_loader: TileLoader, config,
+                 feature_store=None):
         """
         Args:
             feature_matcher: SuperPointLightGlueMatcher instance.
             tile_loader: TileLoader for reference aerial tiles.
             config: config module with IMU_SEARCH_RADIUS_METERS, etc.
+            feature_store: Optional FeatureStoreLoader for precomputed SP features.
         """
         self.matcher = feature_matcher
         self.tiles = tile_loader
         self.cfg = config
+        self.feature_store = feature_store
 
     def search(self,
                query_frame: np.ndarray,
@@ -78,12 +81,22 @@ class BestFirstSearcher:
             return self._empty_result(t0)
 
         # 2. Match against each candidate
+        #    Extract query features once, then match against each tile
+        query_feats = self.matcher.extract_features(query_frame)
         results: List[Tuple[int, int, int, Dict]] = []
         for tx, ty in candidates:
+            # Use precomputed reference features if available
+            if self.feature_store is not None and self.feature_store.has_tile(tx, ty):
+                ref_feats = self.feature_store.get_features(tx, ty)
+                if ref_feats is not None:
+                    match_res = self.matcher.match_both_precomputed(query_feats, ref_feats)
+                    results.append((tx, ty, match_res["num_matches"], match_res))
+                    continue
+            # Fallback: load tile image and extract features at runtime
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue
-            match_res = self.matcher.match(query_frame, tile_img)
+            match_res = self.matcher.match_precomputed(query_feats, tile_img)
             results.append((tx, ty, match_res["num_matches"], match_res))
 
         if not results:

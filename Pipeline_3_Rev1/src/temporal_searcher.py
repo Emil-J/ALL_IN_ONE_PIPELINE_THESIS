@@ -45,11 +45,12 @@ class TemporalSearcher:
     """
 
     def __init__(self, semantic_model, feature_matcher,
-                 tile_loader: TileLoader, config):
+                 tile_loader: TileLoader, config, feature_store=None):
         self.semantic_model = semantic_model
         self.matcher = feature_matcher
         self.tiles = tile_loader
         self.cfg = config
+        self.feature_store = feature_store
 
         self.particle_filter: Optional[ParticleFilter] = None
         self.frame_count = 0
@@ -58,7 +59,8 @@ class TemporalSearcher:
 
         # Sub-modules
         self.meta_tile_builder = MetaTileBuilder(
-            feature_matcher, tile_loader, config)
+            feature_matcher, tile_loader, config,
+            feature_store=feature_store)
         self.semantic_confirmer = SemanticConfirmer(
             semantic_model, config)
 
@@ -113,7 +115,8 @@ class TemporalSearcher:
         query_for_match = self._resize_rotated(query_rotated)
 
         # BestFirstSearcher exhaustive search on rotated query
-        searcher = BestFirstSearcher(self.matcher, self.tiles, self.cfg)
+        searcher = BestFirstSearcher(self.matcher, self.tiles, self.cfg,
+                                     feature_store=self.feature_store)
         search_result = searcher.search(
             query_for_match, imu_data["lat"], imu_data["lon"])
 

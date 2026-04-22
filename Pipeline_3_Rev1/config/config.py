@@ -31,6 +31,9 @@ IMU_CSV_PATH = ALL_IN_ONE_ROOT / "Logs_Run_20260321_162024" / "imu_gps_log_20260
 # Semantic model
 SEMANTIC_MODEL_PATH = ALL_IN_ONE_ROOT / "SemanticTerrainSegmentationModel" / "best.pth"
 
+# Precomputed SuperPoint reference features (HDF5 store from Dataset_Preprocessing)
+REFERENCE_FEATURES_PATH = ALL_IN_ONE_ROOT / "Dataset_Preprocessing" / "reference_features.h5"
+
 # ═══════════════════════════════════════════════════════════════════
 # OUTPUT PATHS
 # ═══════════════════════════════════════════════════════════════════

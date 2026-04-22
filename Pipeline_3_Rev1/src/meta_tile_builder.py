@@ -33,10 +33,12 @@ class MetaTileBuilder:
       5. Meta-tile verification against query frame
     """
 
-    def __init__(self, feature_matcher, tile_loader: TileLoader, config):
+    def __init__(self, feature_matcher, tile_loader: TileLoader, config,
+                 feature_store=None):
         self.matcher = feature_matcher
         self.tiles = tile_loader
         self.cfg = config
+        self.feature_store = feature_store
 
     # ─── 10.2  First pass ────────────────────────────────────────
 
@@ -88,6 +90,14 @@ class MetaTileBuilder:
 
         results = []
         for tx, ty in candidates:
+            # Use precomputed reference features if available
+            if self.feature_store is not None and self.feature_store.has_tile(tx, ty):
+                ref_feats = self.feature_store.get_features(tx, ty)
+                if ref_feats is not None:
+                    match_res = self.matcher.match_both_precomputed(query_feats, ref_feats)
+                    results.append((tx, ty, match_res["num_matches"]))
+                    continue
+            # Fallback: load tile image and extract features at runtime
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue
@@ -119,6 +129,14 @@ class MetaTileBuilder:
         neighbours = self._get_neighbours(top_tile_x, top_tile_y)
         results = []
         for tx, ty in neighbours:
+            # Use precomputed reference features if available
+            if self.feature_store is not None and self.feature_store.has_tile(tx, ty):
+                ref_feats = self.feature_store.get_features(tx, ty)
+                if ref_feats is not None:
+                    match_res = self.matcher.match_both_precomputed(query_feats, ref_feats)
+                    results.append((tx, ty, match_res["num_matches"]))
+                    continue
+            # Fallback: load tile image and extract features at runtime
             tile_img = self.tiles.load_aerial(tx, ty)
             if tile_img is None:
                 continue

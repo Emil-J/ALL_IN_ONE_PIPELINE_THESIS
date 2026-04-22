@@ -75,6 +75,22 @@ class SuperPointLightGlueMatcher:
         feats1 = self.extractor.extract(_to_tensor_gray(img2, self.device))
         return self._run_matcher(feats0, feats1)
 
+    @torch.no_grad()
+    def match_both_precomputed(self, feats0: Dict, feats1: Dict) -> Dict:
+        """Match two pre-extracted feature dicts (both query and reference).
+
+        Use when reference features have been loaded from a precomputed
+        feature store instead of extracted at runtime.
+
+        Args:
+            feats0: Pre-computed query features from extract_features().
+            feats1: Pre-computed reference features (from feature store or
+                    extract_features()).
+
+        Returns same dict format as match().
+        """
+        return self._run_matcher(feats0, feats1)
+
     def _run_matcher(self, feats0: Dict, feats1: Dict) -> Dict:
         """Run LightGlue on two pre-extracted feature dicts."""
         matches_out = self.matcher({"image0": feats0, "image1": feats1})
