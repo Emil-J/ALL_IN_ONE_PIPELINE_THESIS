@@ -74,6 +74,7 @@ class MetaTileBuilder:
         # Semantic pre-filter: rank candidates by histogram intersection,
         # keep only the top-K for SuperPoint (much cheaper than running
         # SuperPoint on all ~24 tiles).
+        n_before_filter = len(candidates)
         if (query_semantic_map is not None
                 and getattr(self.cfg, 'SEMANTIC_PREFILTER_ENABLED', True)
                 and len(candidates) > getattr(self.cfg, 'SEMANTIC_PREFILTER_TOP_K', 10)):
@@ -252,14 +253,24 @@ class MetaTileBuilder:
     # ─── 10.6  Verify meta-tile ──────────────────────────────────
 
     def verify_meta_tile(self, query_frame: np.ndarray,
-                         meta_tile: np.ndarray) -> Tuple[int, Dict]:
+                         meta_tile: np.ndarray,
+                         query_feats=None) -> Tuple[int, Dict]:
         """
         Run matcher between query and meta-tile.
+
+        When *query_feats* is supplied (pre-extracted SuperPoint features),
+        only the meta-tile SP extraction is run — the query extraction is
+        skipped (~100ms saved per frame).
 
         Returns:
             (match_count, full_match_result_dict)
         """
-        match_res = self.matcher.match(query_frame, meta_tile)
+        if query_feats is not None:
+            # Reuse already-extracted query features — only extract meta-tile SP
+            match_res = self.matcher.match_precomputed(query_feats, meta_tile)
+        else:
+            # Fallback: full extraction on both sides
+            match_res = self.matcher.match(query_frame, meta_tile)
         return match_res["num_matches"], match_res
 
     # ─── 10.7  run (full orchestration) ──────────────────────────
@@ -281,7 +292,7 @@ class MetaTileBuilder:
         Returns:
             dict with meta_tile, meta_tile_path, top3_tiles,
             verification_matches, verified, first_pass_candidates,
-            match_result.
+            match_result, _timing.
             None if no tiles found in first pass.
         """
         radius = search_radius_m or self.cfg.FIRST_PASS_SEARCH_RADIUS_M
@@ -296,6 +307,7 @@ class MetaTileBuilder:
             query_feats=query_feats,
             query_semantic_map=query_semantic_map,
         )
+
         if not first_pass_results:
             logger.warning("MetaTileBuilder: no first-pass tiles for "
                            "(%.5f, %.5f) r=%.0f m", imu_lat, imu_lon, radius)
@@ -317,8 +329,9 @@ class MetaTileBuilder:
         meta_tile_path = self.save_meta_tile(meta_tile, query_timestamp)
 
         # Step 5 — verify meta-tile against query
+        # Pass pre-extracted query_feats so we don't re-run SuperPoint on query
         match_count, match_result = self.verify_meta_tile(
-            query_frame, meta_tile)
+            query_frame, meta_tile, query_feats=query_feats)
         verified = match_count >= self.cfg.METATILE_MATCH_THRESHOLD
 
         return {

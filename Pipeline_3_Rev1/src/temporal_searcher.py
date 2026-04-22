@@ -8,7 +8,6 @@ Orchestrates the full Pipeline 3 per-frame loop:
 """
 
 import csv
-import json
 import time
 import logging
 from pathlib import Path
@@ -64,10 +63,6 @@ class TemporalSearcher:
         self.semantic_confirmer = SemanticConfirmer(
             semantic_model, config)
 
-        # JSONL log file handle (opened lazily)
-        self._log_path: Optional[Path] = None
-        self._log_fh = None
-
     # ════════════════════════════════════════════════════════════
     # 9.2  Main interface
     # ════════════════════════════════════════════════════════════
@@ -94,7 +89,6 @@ class TemporalSearcher:
         self.frame_count += 1
         result["_timestamp"] = timestamp
         self.history.append(result)
-        self._write_log(result, imu_data, timestamp)
         self.last_timestamp = timestamp
         return result
 
@@ -105,7 +99,6 @@ class TemporalSearcher:
     def _process_frame_0(self, query_frame: np.ndarray,
                          imu_data: Dict, timestamp: float) -> Dict:
         t0 = time.perf_counter()
-
         # ── Phase B1: rotate query by heading for better matching ──
         heading_deg = imu_data.get("heading", 0)
         rotation_angle = -heading_deg
@@ -259,9 +252,6 @@ class TemporalSearcher:
             dt, imu_data["velocity_mps"], imu_data["gyro_z_dps"])
 
         # Step 2 — Get search region.
-        # Use EKF lat/lon (imu_data) as the search CENTER — it has ~10m accuracy
-        # from the online closed-loop.  PF estimate still drives the search RADIUS
-        # so divergence only widens the search, rather than misplacing it.
         region = self.particle_filter.get_search_region()
         center_lat, center_lon = imu_data["lat"], imu_data["lon"]
         search_radius_m = max(
@@ -273,8 +263,6 @@ class TemporalSearcher:
         heading_deg = imu_data.get("heading", 0)
         rotation_angle = -heading_deg
         query_rotated, rot_M_fwd = rotate_image(query_frame, rotation_angle)
-
-        # Resize rotated image to cap performance cost
         query_for_match = self._resize_rotated(query_rotated)
 
         # Step 3b — Semantic segmentation (before tile search so pre-filter can use it)
@@ -405,9 +393,6 @@ class TemporalSearcher:
         visual_position = homo_position or (est_lat, est_lon)
 
         # Step 9 — Quality-gated blending (Phase B1).
-        # When visual quality is high, trust the visual measurement directly.
-        # When quality is low, fall back to the particle filter estimate
-        # (NOT raw EKF) — the PF carries forward previous visual corrections.
         ekf_pos = (imu_data["lat"], imu_data["lon"])
         pf_pos = (est_lat, est_lon)
 
@@ -564,53 +549,3 @@ class TemporalSearcher:
                     h.get("meta_tile_verified"),
                     h.get("semantic_confidence"),
                 ])
-
-    # ════════════════════════════════════════════════════════════
-    # JSONL logging
-    # ════════════════════════════════════════════════════════════
-
-    def _open_log(self, timestamp: float):
-        if self._log_fh is not None:
-            return
-        log_dir = Path(self.cfg.LOG_OUTPUT_DIR)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        self._log_path = log_dir / f"pipeline3_run_{timestamp:.3f}.jsonl"
-        self._log_fh = open(self._log_path, "w")
-
-    def _write_log(self, result: Dict, imu_data: Dict, timestamp: float):
-        self._open_log(timestamp)
-
-        pos = result.get("position") or (None, None)
-        top3 = result.get("ranked_tiles", [])
-        best = result.get("best_tile")
-
-        record = {
-            "timestamp": timestamp,
-            "frame_name": f"frame_{timestamp:.3f}.jpg",
-            "mode": result.get("method"),
-            "imu_lat": imu_data.get("lat"),
-            "imu_lon": imu_data.get("lon"),
-            "imu_heading": imu_data.get("heading"),
-            "dt": timestamp - self.last_timestamp if self.last_timestamp else None,
-            "first_pass_candidates": result.get("tiles_tested"),
-            "top1_tile": list(best) if best else None,
-            "top3_tiles": [list(t) for t in top3] if top3 else None,
-            "verification_matches": result.get("verification_matches"),
-            "meta_tile_verified": result.get("meta_tile_verified"),
-            "semantic_confidence": result.get("semantic_confidence"),
-            "particle_position_std_m": result.get("particle_spread"),
-            "particle_heading_std_deg": None,
-            "n_eff": result.get("n_eff"),
-            "estimated_lat": pos[0],
-            "estimated_lon": pos[1],
-            "estimated_heading": result.get("heading"),
-            "used_gps_feedback": False,
-        }
-        self._log_fh.write(json.dumps(record) + "\n")
-        self._log_fh.flush()
-
-    def close(self):
-        """Flush and close JSONL log."""
-        if self._log_fh:
-            self._log_fh.close()
-            self._log_fh = None

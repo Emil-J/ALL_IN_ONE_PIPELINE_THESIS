@@ -5,18 +5,15 @@ Based on Algorithm 4 from Kok, Hol, Schön (2017)
 
 EKF class copied from MSFS2020_IMU_Pipeline/ekf_ins.py — math kept identical.
 
-Two entry points:
-  run_ekf_ins(input, output)  — standalone runner, writes estimate-only CSV
+Entry point:
   preprocess_imu_csv(csv)     — Pipeline 3 wrapper, returns DataFrame with
                                  unambiguous estimate vs ground-truth columns
 """
 
 import numpy as np
 import pandas as pd
-import argparse
 import warnings
 from pathlib import Path
-from datetime import datetime
 
 
 # ═══════════════════════════════════════════════════════════════════
