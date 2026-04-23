@@ -5,13 +5,15 @@ All paths, parameters, and constants for the localization pipeline.
 
 from pathlib import Path
 import math
+import os
 
 # ═══════════════════════════════════════════════════════════════════
 # PROJECT PATHS
 # ═══════════════════════════════════════════════════════════════════
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ALL_IN_ONE_ROOT = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline")
+_env_root = os.environ.get("PIPELINE3_DATA_ROOT")
+ALL_IN_ONE_ROOT = Path(_env_root) if _env_root else PROJECT_ROOT.parent
 
 # ═══════════════════════════════════════════════════════════════════
 # INPUT DATA PATHS
@@ -188,9 +190,28 @@ SEMANTIC_PREFILTER_TOP_K = 10
 
 EVALUATION_THRESHOLDS = [10, 25, 50, 100, 250, 500]  # meters
 
+# ═══════════════════════════════════════════════════════════════════
+# DEPLOYMENT FLAGS
+# ═══════════════════════════════════════════════════════════════════
+
+# Set True in notebook/debug only — saves PNG meta-tile every frame (~30-50ms overhead)
+DEBUG_SAVE_METATILES = False
+
+# Set True in notebook/analysis only — appends every frame result to history list
+# (grows unbounded in long runs; not needed for pure runtime)
+ACCUMULATE_HISTORY = False
+
+# ═══════════════════════════════════════════════════════════════════
+# RUNTIME OUTPUT PATHS
+# ═══════════════════════════════════════════════════════════════════
+
+RUNS_OUTPUT_DIR = OUTPUT_DIR / "runs"
+ANALYSIS_OUTPUT_DIR = OUTPUT_DIR / "analysis"
+
 
 def ensure_output_dirs():
     """Create all output directories."""
     for d in [OUTPUT_DIR, CACHE_DIR, METATILE_OUTPUT_DIR, SEMANTIC_OUTPUT_DIR,
-              LOG_OUTPUT_DIR, TRAJECTORY_OUTPUT_DIR, VISUALIZATION_DIR]:
+              LOG_OUTPUT_DIR, TRAJECTORY_OUTPUT_DIR, VISUALIZATION_DIR,
+              RUNS_OUTPUT_DIR, ANALYSIS_OUTPUT_DIR]:
         d.mkdir(parents=True, exist_ok=True)

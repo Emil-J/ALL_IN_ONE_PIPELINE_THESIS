@@ -325,8 +325,11 @@ class MetaTileBuilder:
         # Step 3b — build prediction meta-tile (pre-computed, no model inference)
         prediction_meta_tile = self.build_prediction_meta_tile(top_k)
 
-        # Step 4 — save to disk (always, before verification)
-        meta_tile_path = self.save_meta_tile(meta_tile, query_timestamp)
+        # Step 4 — save to disk (debug only)
+        if getattr(self.cfg, 'DEBUG_SAVE_METATILES', False):
+            meta_tile_path = self.save_meta_tile(meta_tile, query_timestamp)
+        else:
+            meta_tile_path = None
 
         # Step 5 — verify meta-tile against query
         # Pass pre-extracted query_feats so we don't re-run SuperPoint on query

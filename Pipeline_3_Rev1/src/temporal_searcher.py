@@ -88,7 +88,8 @@ class TemporalSearcher:
 
         self.frame_count += 1
         result["_timestamp"] = timestamp
-        self.history.append(result)
+        if getattr(self.cfg, 'ACCUMULATE_HISTORY', True):
+            self.history.append(result)
         self.last_timestamp = timestamp
         return result
 
