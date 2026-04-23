@@ -126,13 +126,14 @@ class SimConnectLiveSource:
     CAPTURE_FPS  = 5     # target frame capture rate (time-based, not iteration-based)
 
     def __init__(self):
-        self._lock             = threading.Lock()
-        self._latest_row       = None     # dict of IMU data
-        self._latest_img       = None     # np.ndarray
-        self._frame_id         = 0
-        self._running          = False
+        self._lock                    = threading.Lock()
+        self._latest_row              = None     # dict of IMU data
+        self._latest_img              = None     # np.ndarray
+        self._frame_id                = 0
+        self._running                 = False
         self._thread: Optional[threading.Thread] = None
-        self._last_capture_time = 0.0    # perf_counter timestamp of last frame capture
+        self._last_capture_time       = 0.0    # perf_counter of last capture (rate-limiting)
+        self._latest_frame_capture_ts = 0.0    # perf_counter when current frame was captured
 
         # SimConnect handles (set in connect())
         self._sm  = None
@@ -184,12 +185,13 @@ class SimConnectLiveSource:
         with self._lock:
             return copy.copy(self._latest_row)
 
-    def get_latest_frame(self) -> Tuple[Optional[np.ndarray], int]:
-        """Return (frame_array_copy_or_None, frame_id)."""
+    def get_latest_frame(self) -> Tuple[Optional[np.ndarray], int, float]:
+        """Return (frame_array_copy_or_None, frame_id, capture_perf_counter_ts)."""
         with self._lock:
             img = self._latest_img
             fid = self._frame_id
-        return (img.copy() if img is not None else None), fid
+            ts  = self._latest_frame_capture_ts
+        return (img.copy() if img is not None else None), fid, ts
 
     # ── internal ──────────────────────────────────────────────────────────────
 
@@ -316,9 +318,10 @@ class SimConnectLiveSource:
                     img_rgb = img_raw[:, :, 2::-1]  # BGRA → RGB
 
                     with self._lock:
-                        self._latest_row       = row
-                        self._latest_img       = img_rgb
-                        self._frame_id        += 1
+                        self._latest_row              = row
+                        self._latest_img              = img_rgb
+                        self._frame_id               += 1
+                        self._latest_frame_capture_ts = t_start
                     self._last_capture_time = t_start
                 else:
                     with self._lock:

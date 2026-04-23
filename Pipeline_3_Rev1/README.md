@@ -19,6 +19,8 @@ IMU CSV / SimConnect stream
         ▼
 Error-State EKF (10D)  ─────────── dead-reckoned lat/lon/heading/velocity
   [ekf_ins.py]                      position-error states updated every frame
+  WMM2025 magnetic declination      computed from initial GPS at bootstrap
+  [wmm_declination.py]
         │
         ▼
 TemporalSearcher
@@ -74,6 +76,7 @@ Pipeline_3_Rev1/
 │
 ├── src/                        Core library (import as `from src.X import Y`)
 │   ├── ekf_ins.py              10D Error-State EKF; step_ekf(); preprocess_imu_csv()
+│   ├── wmm_declination.py      WMM2025 magnetic declination & inclination
 │   ├── temporal_searcher.py    Top-level frame processor; orchestrates everything
 │   ├── best_first_search.py    Frame-0 cold-start exhaustive tile search
 │   ├── meta_tile_builder.py    Two-pass tile search + meta-tile stitching
@@ -98,6 +101,7 @@ Pipeline_3_Rev1/
 │
 ├── notebooks/
 │   ├── test_temporal_pipeline.ipynb   Interactive tuning notebook (10 cells)
+│   ├── live_analysis.ipynb            Standalone analysis for any run directory
 │   └── diagnostics.ipynb             Deep-dive diagnostic plots (8 cells)
 │
 ├── tests/
@@ -109,12 +113,11 @@ Pipeline_3_Rev1/
 │   └── test_temporal_searcher.py
 │
 ├── docs/
-│   ├── CLAUDE_PHASE_B1_NOTES.md   Phase B1 development notes
-│   ├── PHASE_B1_REPORT.md         Phase B1 accuracy report
 │   └── PIPELINE_07_04_2026.md     Full Phase C architecture documentation
 │
 └── outputs/                    All generated files (gitignored)
     ├── runs/                   One sub-directory per run_pipeline.py run
+    ├── analysis/               Saved PNGs from live_analysis.ipynb
     ├── metatiles/              Debug meta-tile PNGs (DEBUG_SAVE_METATILES=True)
     └── ...
 ```
@@ -134,7 +137,7 @@ pip install segmentation-models-pytorch timm
 pip install pandas numpy scipy matplotlib opencv-python-headless
 pip install pyproj h5py
 # Optional (SimConnect live mode only):
-pip install SimConnect
+pip install SimConnect mss pywin32
 ```
 
 The reference venv is `.final_Pipeline_venv` at the workspace root and has all
@@ -155,9 +158,11 @@ All_In_One_Pipeline/
 │   └── images_20260321_162024/frame_*.jpg Query frames (1920×1079)
 ├── SemanticTerrainSegmentationModel/
 │   └── best.pth                      UNet++ EfficientNet-B3 weights
-└── Dataset_Preprocessing/
-    └── reference_features.h5         Pre-computed SuperPoint reference features
-                                      (3960 tiles × 2048 keypoints)
+├── Dataset_Preprocessing/
+│   └── reference_features.h5         Pre-computed SuperPoint reference features
+│                                     (3960 tiles × 2048 keypoints)
+└── WMM2025COF/WMM2025COF/
+    └── WMM2025.COF                   WMM2025 Gauss coefficients (loaded at runtime)
 ```
 
 To point the pipeline at a different root directory, set the environment variable:
@@ -186,7 +191,7 @@ All tunable parameters live in `config/config.py`. Key values:
 | `QUALITY_GATE_INLIERS` | `20` | Min inlier count to accept visual update |
 | `VISUAL_POSITION_NOISE_M` | `50` | EKF measurement noise std (σ, metres) |
 | `POSITION_PROCESS_NOISE_M` | `5` | EKF position process noise std per √s |
-| `INITIAL_POSITION_VARIANCE_M` | `200` | Initial EKF position uncertainty |
+| `INITIAL_POSITION_VARIANCE_M` | `200` | Initial EKF position uncertainty (σ) |
 | `SEMANTIC_PREFILTER_ENABLED` | `True` | Pre-filter tiles by semantic histogram |
 | `SEMANTIC_PREFILTER_TOP_K` | `10` | Keep this many candidates before SP+LG |
 | `METATILE_TOP_K` | `3` | Tiles to stitch into meta-tile |
@@ -194,13 +199,44 @@ All tunable parameters live in `config/config.py`. Key values:
 | `ACCUMULATE_HISTORY` | `False` | Accumulate full result history (notebook only) |
 | `DIVERGENCE_POSITION_THRESHOLD_M` | `500` | Particle-filter divergence reset threshold |
 
-The adaptive measurement noise applied in the notebook uses these values:
-- **High quality** (CShape > 0.5 AND inliers > 100): R = 30² = 900 m²
-- **Normal quality** (gate passes but below high threshold): R = 60² = 3600 m²
-- **Turn multiplier** (bank > 15°): R × 3
+### Adaptive measurement noise (hard-coded in `run_pipeline.py`)
+
+| Condition | R (m²) | Std dev |
+|-----------|--------|---------|
+| Cold-start frame (first visual match after EKF bootstrap) | 10 000 | 100 m |
+| High quality: CShape > 0.5 AND inliers > 100 | 900 | 30 m |
+| Normal quality (gate passes, below high threshold) | 3 600 | 60 m |
+| Bank > 20° (turn): multiply current R by | × 2.0 | — |
+| Meta-tile not verified: multiply current R by | × 2.0 | — |
+| Semantic confidence factor: R × max(0.5, 2.0 − 1.5 × sem_conf) | — | — |
 
 The camera look-ahead correction constant `LOOKAHEAD_M = 110.0` is defined
-directly in the notebook (Cell 2) because it is dataset-specific.
+directly in `run_pipeline.py` (and in notebook Cell 2) because it is dataset-specific.
+
+---
+
+## Magnetic Declination — WMM2025
+
+At EKF bootstrap, `run_pipeline.py` calls `src/wmm_declination.py` to compute
+the WMM2025 magnetic declination and inclination from the initial GPS coordinate:
+
+```python
+mag_dec_deg, mag_inc_deg = get_mag_field(lat0, lon0, alt_m=alt0)
+ekf = ErrorStateEKF(..., mag_dec_deg=mag_dec_deg, mag_inc_deg=mag_inc_deg)
+```
+
+This replaces the hardcoded `mag_dec = 4°` used in earlier versions.
+For Vejle, Denmark (55.7°N, 9.5°E, ~540 m, 2026.3) the computed values are
+approximately `dec ≈ 4.2°`, `inc ≈ 70.5°`.
+
+The WMM2025 coefficients are loaded from `WMM2025COF/WMM2025COF/WMM2025.COF`
+(lazy-loaded and cached on first call, ~100 µs per call thereafter).
+
+To verify the implementation:
+```bash
+python -c "from src.wmm_declination import get_mag_field; print(get_mag_field(43, 93, 65000, 2025.0))"
+# Expected: (~0.50, ~64.10)  (matches WMM2025 test values)
+```
 
 ---
 
@@ -265,19 +301,62 @@ Results are written to `outputs/runs/<run-id>/results.csv`.
 ```bash
 # Prerequisites:
 #   - MSFS 2020 running with SimConnect enabled
-#   - Python SimConnect library installed
+#   - Python SimConnect + mss + pywin32 installed
 #   - Drone flying over the reference map area
 
-python runtime/run_pipeline.py --source simconnect --run-id live_test
+python runtime/run_pipeline.py --source simconnect --run-id live_001
 ```
 
-The `simconnect_adapter.py` polls MSFS at ~10 Hz, converts units (ft/s² → m/s²,
-knots → m/s, MSFS body frame → standard NED), and yields aligned `(imu_row,
-frame_path)` tuples identical to the file-mode interface.
+`simconnect_adapter.py` runs a background thread that polls MSFS at ~10 Hz,
+converts units (ft/s² → m/s², knots → m/s, MSFS left-handed body → standard NED),
+and exposes the latest IMU row + captured screen frame to the main loop via
+non-blocking accessors. Frame capture is time-gated at 5 fps.
 
-**Known limitations**: SimConnect live mode has been validated for data ingestion
-but the closed-loop EKF visual update path is exercised primarily in file mode.
-Performance depends on MSFS frame rate and SimConnect polling latency.
+The frame capture timestamp (`perf_counter`) is stored when each frame is grabbed
+and returned as the third element of `get_latest_frame()` → used to compute
+`inference_ms` (time from capture to GPS estimate) in `results.csv`.
+
+At bootstrap the pipeline:
+1. Waits for the first valid SimConnect GPS sample
+2. Computes WMM2025 magnetic declination from the initial GPS coordinate
+3. Initialises the EKF with the correct dec/inc for the flight area
+4. Prints: `[run_pipeline] WMM2025 dec=X.XX°  inc=XX.XX°`
+
+**When to use**: Real-time localization during live MSFS 2020 flight.
+
+---
+
+### Part 4 — Analyze a Run
+
+Open `notebooks/live_analysis.ipynb`, set `RUN_DIR` in Cell 1, then
+**Kernel → Restart and Run All**. It is fully self-contained.
+
+| Cell | Content |
+|------|---------|
+| 1 | Setup & load `results.csv` |
+| 2 | Summary metrics table (mean/median/min/max error, % under thresholds) |
+| 3 | Error over time |
+| 4 | Trajectory map (EKF vs GPS GT) |
+| 5 | Gate health (CShape + inliers over time) |
+| 6 | EKF position sigma convergence |
+| 7 | Error CDF |
+| 8 | Timing & performance (search time + `inference_ms` if SimConnect run) |
+
+Works with both file-mode and SimConnect-mode `results.csv`. The `inference_ms`
+column is `None` in file mode and displays automatically in SimConnect runs.
+
+Alternatively use the CLI analysis scripts:
+
+```bash
+# Print accuracy table
+python analysis/evaluate_run.py --run-dir outputs/runs/my_run_01
+
+# Save trajectory map PNG
+python analysis/plot_trajectory.py --run-dir outputs/runs/my_run_01
+
+# Save multi-panel diagnostics PNG
+python analysis/plot_diagnostics.py --run-dir outputs/runs/my_run_01
+```
 
 ---
 
@@ -298,58 +377,53 @@ Performance depends on MSFS frame rate and SimConnect polling latency.
    └── python runtime/run_pipeline.py --source file --start-row 430 --max-frames 300
 
 4. Analyze the run
-   └── python analysis/evaluate_run.py  --run-dir outputs/runs/my_run_01
-       python analysis/plot_trajectory.py --run-dir outputs/runs/my_run_01
-       python analysis/plot_diagnostics.py --run-dir outputs/runs/my_run_01
-```
+   └── Open notebooks/live_analysis.ipynb, set RUN_DIR, Restart & Run All
+       Or: python analysis/evaluate_run.py --run-dir outputs/runs/my_run_01
 
----
-
-## Analysis Scripts
-
-All three scripts share the same interface: `--run-dir` (required) and
-`--gt-csv` (optional, defaults to the IMU CSV from config).
-
-```bash
-# Print accuracy table (mean/median error, % under 10/25/50/100/250/500 m)
-python analysis/evaluate_run.py --run-dir outputs/runs/my_run_01
-
-# Save trajectory map PNG to the run directory
-python analysis/plot_trajectory.py --run-dir outputs/runs/my_run_01
-
-# Save multi-panel diagnostics PNG (quality, timing, gate analysis)
-python analysis/plot_diagnostics.py --run-dir outputs/runs/my_run_01
+5. Live MSFS run
+   └── python runtime/run_pipeline.py --source simconnect --run-id live_001
+       Open notebooks/live_analysis.ipynb, set RUN_DIR to live_001, Run All
 ```
 
 ---
 
 ## Output Format
 
-Each run directory contains `results.csv` with one row per processed frame:
+Each run writes `outputs/runs/<run-id>/results.csv` with one row per frame (31 columns):
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `frame` | int | Frame index (0-based within the run) |
-| `ts` | float | Timestamp (seconds) |
-| `image` | str | Frame filename |
-| `method` | str | How position was obtained: `visual_homo`, `particle_filter`, `imu_fallback`, etc. |
-| `est_lat` | float | Estimated latitude (°) |
-| `est_lon` | float | Estimated longitude (°) |
-| `online_lat` | float | Online EKF latitude (°) |
-| `online_lon` | float | Online EKF longitude (°) |
-| `gps_lat` | float | Ground-truth latitude from IMU CSV (°) |
-| `gps_lon` | float | Ground-truth longitude from IMU CSV (°) |
-| `online_err` | float | Online EKF error vs GT (m) |
-| `batch_err` | float | Batch EKF (dead-reckoning only) error vs GT (m) |
-| `homo_err_corr` | float | Corrected homography error vs GT (m), NaN if no match |
-| `homo_err_raw` | float | Uncorrected homography error vs GT (m), NaN if no match |
-| `gate_pass` | bool | Whether the visual quality gate passed |
-| `CShape` | float | CShape score from homography (visual quality metric) |
+| `frame_idx` | int | Frame index (0-based within the run) |
+| `timestamp` | float | Timestamp (seconds) |
+| `image_name` | str | Frame filename stem (file mode) or `live_<id>` (SimConnect) |
+| `final_lat` | float | EKF estimated latitude (°) after visual update |
+| `final_lon` | float | EKF estimated longitude (°) after visual update |
+| `heading_deg` | float | EKF heading (° true north) |
+| `altitude_m` | float | EKF altitude (m) from barometer / pressure_altitude |
+| `roll_deg` | float | EKF roll (°) |
+| `pitch_deg` | float | EKF pitch (°) |
+| `vel_n` | float | EKF north velocity (m/s) |
+| `vel_e` | float | EKF east velocity (m/s) |
+| `vel_d` | float | EKF down velocity (m/s) |
+| `gps_lat` | float | GPS ground-truth latitude (°); NaN if unavailable |
+| `gps_lon` | float | GPS ground-truth longitude (°); NaN if unavailable |
+| `gps_alt_m` | float | GPS ground-truth altitude (m) |
+| `method` | str | Visual localization method: `cold_start`, `temporal`, `imu_fallback` |
+| `gate_pass` | int | 1 if quality gate passed and EKF was updated, 0 otherwise |
+| `search_time_s` | float | Wall-clock time for this frame's visual search (s) |
+| `cs_shape` | float | CShape score (visual match quality, 0–1) |
 | `inliers` | int | RANSAC inlier count |
-| `sem_conf` | float | Semantic histogram match confidence |
-| `bank_deg` | float | Bank angle at this frame (°) |
+| `semantic_conf` | float | Semantic histogram match confidence (0–1) |
+| `homo_lat` | float | Raw homography-derived latitude (before look-ahead correction) |
+| `homo_lon` | float | Raw homography-derived longitude (before look-ahead correction) |
+| `homo_corrected_lat` | float | Look-ahead-corrected latitude fed to EKF |
+| `homo_corrected_lon` | float | Look-ahead-corrected longitude fed to EKF |
+| `meta_tile_verified` | int | 1 if meta-tile second-pass verification passed |
+| `ekf_pos_sigma` | float | EKF position uncertainty σ = √max(P[8,8], P[9,9]) (m) |
+| `r_used_sqrt` | float | √R used for EKF position update (m); None if no update |
 | `tiles_tested` | int | Number of tiles evaluated by feature matcher |
-| `search_time` | float | Wall-clock time for this frame (seconds) |
+| `verification_matches` | int | Inlier count from meta-tile second-pass verification |
+| `inference_ms` | float | End-to-end latency from frame capture to GPS estimate (ms); None in file mode |
 
 ---
 
@@ -383,6 +457,11 @@ python -m pytest tests/ -v
   camera mount angle, or altitude will require re-calibration using the
   Lookahead Calibration cell in `diagnostics.ipynb`.
 
+- **Cold-start EKF trust (`R_COLD_START = 10 000 m²`)**: The first visual match
+  after bootstrap uses a 100 m std dev rather than the default 30 m. This reduces
+  over-trust in the first (cold-start) measurement while still converging quickly.
+  Frame 1 onward uses the normal adaptive noise schedule.
+
 - **Domain mismatch**: Query frames are 3D rendered perspective images;
   reference tiles are orthophotos. SP+LG quality collapses in areas with
   large buildings, heavy tree canopy, or when the drone banks sharply (frames
@@ -394,9 +473,10 @@ python -m pytest tests/ -v
   frames before the drone enters the mapped area (auto-detected in the
   notebook Cell 3).
 
-- **SimConnect live mode**: Data ingestion path is validated; the full
-  closed-loop EKF visual update in real-time has not been benchmarked end-to-end.
-
 - **HDF5 feature store** (`reference_features.h5`): Pre-computed with
   `MAX_NUM_KEYPOINTS=2048`. If you change this constant in config, the store
   must be rebuilt by re-running the `Dataset_Preprocessing` notebook.
+
+- **WMM2025 validity**: The WMM2025 model is valid through 2029.9. The
+  `WMM2025.COF` coefficient file must be present at
+  `All_In_One_Pipeline/WMM2025COF/WMM2025COF/WMM2025.COF`.

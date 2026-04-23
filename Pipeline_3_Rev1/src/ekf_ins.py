@@ -10,6 +10,7 @@ Entry point:
                                  unambiguous estimate vs ground-truth columns
 """
 
+import math
 import numpy as np
 import pandas as pd
 import warnings
@@ -125,13 +126,16 @@ class ErrorStateEKF:
     - Barometer: altitude
     """
 
-    def __init__(self, lat0, lon0, alt0, heading0, airspeed0=None):
+    def __init__(self, lat0, lon0, alt0, heading0, airspeed0=None,
+                 mag_dec_deg: float = 4.0, mag_inc_deg: float = 70.0,
+                 pos_process_noise_m: float = 5.0):
         self.R_earth = 6371000.0
         self.lat0_rad = np.radians(lat0)
         self.lon0_rad = np.radians(lon0)
 
         self.q_tilde = quat_from_euler(0.0, 0.0, np.radians(heading0))
-        self.mag_dec = np.radians(4.0)  # ~4 deg East at Vejle, Denmark
+        self.mag_dec = np.radians(mag_dec_deg)
+        self._pos_noise_m = pos_process_noise_m
 
         self.pos_n = 0.0
         self.pos_e = 0.0
@@ -172,7 +176,7 @@ class ErrorStateEKF:
 
         self.g_n = np.array([0, 0, 9.81])
 
-        mag_inc = np.radians(70.0)
+        mag_inc = np.radians(mag_inc_deg)
         self.m_n = np.array([
             np.cos(mag_inc) * np.cos(self.mag_dec),
             np.cos(mag_inc) * np.sin(self.mag_dec),
@@ -227,7 +231,7 @@ class ErrorStateEKF:
         self.P[0:3, 0:3] += G_theta @ self.Q_gyro @ G_theta.T
         self.P[3:6, 3:6] += self.Q_gyro_bias * dt
         self.P[6:8, 6:8] += self.Q_wind * dt
-        self.P[8:10, 8:10] += np.eye(2) * (5.0)**2 * dt  # position process noise
+        self.P[8:10, 8:10] += np.eye(2) * self._pos_noise_m ** 2 * dt
 
         # Maneuver detection
         accel_ned = R_nb @ accel_body
@@ -538,9 +542,15 @@ def step_ekf(ekf, row, prev_timestamp=None):
     ekf.predict(omega_meas, accel_body, dt)
 
     # ── Measurement updates ──
-    baro_raw = row['barometer_pressure']
-    if baro_raw is not None:
-        baro_alt = barometric_altitude(baro_raw)
+    baro_alt = None
+    pa = row.get('pressure_altitude')
+    if pa is not None and not (isinstance(pa, float) and math.isnan(pa)):
+        baro_alt = pa * 0.3048          # MSFS PRESSURE_ALTITUDE is feet → metres
+    else:
+        bp = row.get('barometer_pressure')
+        if bp is not None and not (isinstance(bp, float) and math.isnan(bp)):
+            baro_alt = barometric_altitude(bp)
+    if baro_alt is not None:
         ekf.update_barometer(baro_alt, timestamp)
 
     heading_mag_raw = row.get('heading_magnetic')

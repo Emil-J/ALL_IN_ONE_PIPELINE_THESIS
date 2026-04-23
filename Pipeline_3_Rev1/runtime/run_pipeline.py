@@ -45,12 +45,14 @@ from src.geometric_matcher import initialize_matcher
 from src.semantic_model import load_semantic_model
 from src.temporal_searcher import TemporalSearcher
 from src.ekf_ins import (ErrorStateEKF, step_ekf, barometric_altitude)
+from src.wmm_declination import get_mag_field
 from runtime.simconnect_adapter import FileSource
 
 # ── algorithm constants ───────────────────────────────────────────────────────
 LOOKAHEAD_M             = 110.0
 R_HIGH                  = 30.0 ** 2
 R_MED                   = 60.0 ** 2
+R_COLD_START            = 10000.0   # 100 m std dev — reduced trust for cold-start match
 TURN_ROLL_THRESHOLD_RAD = 0.35   # ~20° — only inflate R for steep banks
 TURN_R_MULTIPLIER       = 2.0    # gentler de-weighting; circular flight tested OK
 
@@ -66,6 +68,7 @@ RESULT_COLUMNS = [
     "homo_lat", "homo_lon", "homo_corrected_lat", "homo_corrected_lon",
     "meta_tile_verified", "ekf_pos_sigma", "r_used_sqrt",
     "tiles_tested", "verification_matches",
+    "inference_ms",
 ]
 
 
@@ -134,7 +137,10 @@ def _init_ekf(raw_df: pd.DataFrame, start_row: int):
     heading0  = np.degrees(raw_df["heading_magnetic"].iloc[0])
     airspeed0 = (raw_df["airspeed_true"].iloc[0]
                  if "airspeed_true" in raw_df.columns else None)
-    ekf = ErrorStateEKF(lat0, lon0, alt0, heading0, airspeed0)
+    mag_dec_deg, mag_inc_deg = get_mag_field(lat0, lon0, alt0)
+    print(f"[EKF] WMM2025 dec={mag_dec_deg:.2f}°  inc={mag_inc_deg:.2f}°")
+    ekf = ErrorStateEKF(lat0, lon0, alt0, heading0, airspeed0,
+                        mag_dec_deg=mag_dec_deg, mag_inc_deg=mag_inc_deg)
     prev_ts = None
     for i in range(start_row + 1):
         row_dict = raw_df.iloc[i].to_dict()
@@ -204,9 +210,13 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
                                             * math.cos(math.radians(homo_lat_raw))))
             homo_pos = (homo_corr_lat, homo_corr_lon)
 
+    method_str = result.get("method", "")
     r_used = None
     if gate_pass and homo_pos is not None:
-        r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
+        if method_str == "cold_start":
+            r_used = R_COLD_START
+        else:
+            r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
         if bank_rad > TURN_ROLL_THRESHOLD_RAD:
             r_used *= TURN_R_MULTIPLIER
         if not meta_verified:
@@ -250,6 +260,7 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
         "r_used_sqrt":        round(math.sqrt(r_used), 2) if r_used else None,
         "tiles_tested":       tiles_tested,
         "verification_matches": ver_matches,
+        "inference_ms":       None,   # file mode has no real-time capture latency
     }
     return final_lat, final_lon, prev_ts_ekf_new, result_row
 
@@ -337,7 +348,10 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
     lon0     = row["longitude"]
     alt0     = barometric_altitude(row.get("barometer_pressure") or 1013.25)
     heading0 = math.degrees(row.get("heading_magnetic") or 0.0)
-    ekf      = ErrorStateEKF(lat0, lon0, alt0, heading0, None)
+    mag_dec_deg, mag_inc_deg = get_mag_field(lat0, lon0, alt0)
+    print(f"[run_pipeline] WMM2025 dec={mag_dec_deg:.2f}°  inc={mag_inc_deg:.2f}°")
+    ekf      = ErrorStateEKF(lat0, lon0, alt0, heading0, None,
+                             mag_dec_deg=mag_dec_deg, mag_inc_deg=mag_inc_deg)
     prev_ts  = row.get("timestamp", time.time())
     print(f"[run_pipeline] EKF bootstrapped: ({lat0:.6f}, {lon0:.6f})  yaw={heading0:.1f}°")
 
@@ -368,7 +382,7 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                         last_imu_ts = row_ts
 
                 # ── Visual processing when a new frame arrives ─────────────
-                frame_img, frame_id = source.get_latest_frame()
+                frame_img, frame_id, frame_capture_ts = source.get_latest_frame()
                 if frame_img is None or frame_id == last_frame_id:
                     time.sleep(0.005)
                     continue
@@ -422,7 +436,11 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                                                     * math.cos(math.radians(homo_lat_raw))))
                     homo_pos = (homo_corr_lat, homo_corr_lon)
 
-                    r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
+                    sc_method = result.get("method", "")
+                    if sc_method == "cold_start":
+                        r_used = R_COLD_START
+                    else:
+                        r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
                     if bank_rad > TURN_ROLL_THRESHOLD_RAD:
                         r_used *= TURN_R_MULTIPLIER
                     if not meta_verified:
@@ -481,6 +499,8 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                     "r_used_sqrt":        round(math.sqrt(r_used), 2) if r_used else None,
                     "tiles_tested":       result.get("tiles_tested", 0),
                     "verification_matches": result.get("verification_matches", 0),
+                    "inference_ms":       round(
+                        (time.perf_counter() - frame_capture_ts) * 1000.0, 1),
                 }
                 writer.writerow(result_row)
                 if (frame_idx + 1) % 10 == 0:
