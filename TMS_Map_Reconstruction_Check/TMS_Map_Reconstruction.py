@@ -25,16 +25,16 @@ import matplotlib.pyplot as plt
 # USER SETTINGS
 # ============================================================
 
-ROOT_DIR = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE\aerial")
+ROOT_DIR = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\REFERENCE_MAP_VEJLE_20260321_162024\aerial")
 OUTPUT_DIR = Path(r"C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\TMS_Map_Reconstruction_Check")
 
 ZOOM = 16
 
-TILE_X_MIN = 34494
-TILE_X_MAX = 34508
+TILE_X_MIN = 34482
+TILE_X_MAX = 34547
 
-TILE_Y_MIN = 45025
-TILE_Y_MAX = 45042
+TILE_Y_MIN = 45003
+TILE_Y_MAX = 45062
 
 TILE_SIZE = 512
 TILE_EXT = ".png"

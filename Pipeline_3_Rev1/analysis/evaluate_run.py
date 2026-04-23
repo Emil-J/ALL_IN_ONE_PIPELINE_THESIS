@@ -52,17 +52,28 @@ def main():
     results = pd.read_csv(results_path)
     n = len(results)
 
-    # ── Build GT lookup: timestamp → (gt_lat, gt_lon, batch_lat, batch_lon) ──
-    imu_log = preprocess_imu_csv(gt_csv)   # adds latitude_est / longitude_est
+    # ── Build GT lookup ──────────────────────────────────────────────────────
+    # Live (SimConnect) runs: gps_lat/gps_lon are stored per-frame in results.csv.
+    # File runs: join by timestamp against the IMU CSV (also supplies batch EKF).
+    have_inline_gt = (
+        "gps_lat" in results.columns and results["gps_lat"].notna().any()
+    )
 
-    # Round timestamps to 3dp for join
-    imu_log["ts_key"]  = imu_log["timestamp"].round(3)
-    results["ts_key"]  = results["timestamp"].round(3)
-
-    merged = results.merge(
-        imu_log[["ts_key", "gps_lat", "gps_lon",
-                 "latitude_est", "longitude_est"]],
-        on="ts_key", how="left")
+    if have_inline_gt:
+        # Live mode — GPS ground truth is already in results.csv; use it directly.
+        # No batch EKF baseline is available (live timestamps ≠ pre-recorded CSV).
+        merged = results.copy()
+        merged["latitude_est"]  = None
+        merged["longitude_est"] = None
+    else:
+        # File mode — join by timestamp to get GT + batch EKF baseline.
+        imu_log = preprocess_imu_csv(gt_csv)   # adds latitude_est / longitude_est
+        imu_log["ts_key"] = imu_log["timestamp"].round(3)
+        results["ts_key"] = results["timestamp"].round(3)
+        merged = results.merge(
+            imu_log[["ts_key", "gps_lat", "gps_lon",
+                     "latitude_est", "longitude_est"]],
+            on="ts_key", how="left")
 
     have_gt = merged["gps_lat"].notna()
 
@@ -73,7 +84,8 @@ def main():
     for _, row in merged[have_gt].iterrows():
         gt_lat, gt_lon = row["gps_lat"], row["gps_lon"]
         final_errs.append(_hav(row["final_lat"], row["final_lon"], gt_lat, gt_lon))
-        batch_errs.append(_hav(row["latitude_est"], row["longitude_est"], gt_lat, gt_lon))
+        if pd.notna(row.get("latitude_est")) and pd.notna(row.get("longitude_est")):
+            batch_errs.append(_hav(row["latitude_est"], row["longitude_est"], gt_lat, gt_lon))
         if pd.notna(row.get("homo_corrected_lat")) and pd.notna(row.get("homo_corrected_lon")):
             homo_errs.append(_hav(row["homo_corrected_lat"], row["homo_corrected_lon"],
                                   gt_lat, gt_lon))
@@ -100,33 +112,51 @@ def main():
         tee(f"Run dir: {run_dir}")
 
     tee(f"\nFrames with GT: {len(final_errs)}/{n}")
-    tee(f"\nOnline EKF errors:")
-    tee(f"  mean   = {np.mean(final_errs):.1f} m")
-    tee(f"  median = {np.median(final_errs):.1f} m")
-    tee(f"  min    = {np.min(final_errs):.1f} m")
-    tee(f"  max    = {np.max(final_errs):.1f} m")
-    tee(f"  std    = {np.std(final_errs):.1f} m")
 
-    if len(batch_errs):
-        tee(f"\nBatch EKF errors:")
-        tee(f"  mean   = {np.mean(batch_errs):.1f} m")
-        impr = np.mean(batch_errs) - np.mean(final_errs)
-        tee(f"  Improvement over batch: {impr:.1f} m "
-            f"({impr / np.mean(batch_errs) * 100:.1f}%)")
+    has_gt = len(final_errs) > 0
 
-    if len(homo_errs):
-        tee(f"\nHomography-only errors (n={len(homo_errs)}):")
-        tee(f"  mean={np.mean(homo_errs):.1f} m  min={np.min(homo_errs):.1f} m  "
-            f"max={np.max(homo_errs):.1f} m")
+    if has_gt:
+        tee(f"\nOnline EKF errors:")
+        tee(f"  mean   = {np.mean(final_errs):.1f} m")
+        tee(f"  median = {np.median(final_errs):.1f} m")
+        tee(f"  min    = {np.min(final_errs):.1f} m")
+        tee(f"  max    = {np.max(final_errs):.1f} m")
+        tee(f"  std    = {np.std(final_errs):.1f} m")
 
-    tee(f"\nGate passes: {gate_count}/{n}")
-    better = int(np.sum(final_errs < batch_errs[:len(final_errs)]))
-    tee(f"Beating batch: {better}/{len(final_errs)}")
+        if len(batch_errs):
+            tee(f"\nBatch EKF errors:")
+            tee(f"  mean   = {np.mean(batch_errs):.1f} m")
+            impr = np.mean(batch_errs) - np.mean(final_errs)
+            tee(f"  Improvement over batch: {impr:.1f} m "
+                f"({impr / np.mean(batch_errs) * 100:.1f}%)")
 
-    for thresh in config.EVALUATION_THRESHOLDS:
-        cnt = int(np.sum(final_errs <= thresh))
-        tee(f"  <{thresh:4d}m : {cnt}/{len(final_errs)} "
-            f"({cnt / max(len(final_errs), 1) * 100:.0f}%)")
+        if len(homo_errs):
+            tee(f"\nHomography-only errors (n={len(homo_errs)}):")
+            tee(f"  mean={np.mean(homo_errs):.1f} m  min={np.min(homo_errs):.1f} m  "
+                f"max={np.max(homo_errs):.1f} m")
+    else:
+        tee(f"\n(No GT available — live/SimConnect run.  Accuracy metrics skipped.)")
+
+    tee(f"\nGate passes: {gate_count}/{n}  ({gate_count / max(n, 1) * 100:.0f}%)")
+
+    if has_gt:
+        if len(batch_errs):
+            better = int(np.sum(final_errs < batch_errs[:len(final_errs)]))
+            tee(f"Beating batch: {better}/{len(final_errs)}")
+        for thresh in config.EVALUATION_THRESHOLDS:
+            cnt = int(np.sum(final_errs <= thresh))
+            tee(f"  <{thresh:4d}m : {cnt}/{len(final_errs)} "
+                f"({cnt / max(len(final_errs), 1) * 100:.0f}%)")
+
+    # ── Trajectory extent (always available) ──────────────────────────────────
+    lats = results["final_lat"].dropna()
+    lons = results["final_lon"].dropna()
+    if len(lats):
+        tee(f"\nTrajectory extent:")
+        tee(f"  lat  {lats.min():.6f} → {lats.max():.6f}  (span {(lats.max()-lats.min())*111320:.0f} m)")
+        tee(f"  lon  {lons.min():.6f} → {lons.max():.6f}")
+        tee(f"  start: ({lats.iloc[0]:.6f}, {lons.iloc[0]:.6f})")
+        tee(f"  end:   ({lats.iloc[-1]:.6f}, {lons.iloc[-1]:.6f})")
 
     # ── Save outputs ──────────────────────────────────────────────────────────
     run_id = run_dir.name
@@ -136,26 +166,27 @@ def main():
     summary_txt = out_dir / "summary.txt"
     summary_txt.write_text("\n".join(lines), encoding="utf-8")
 
-    summary_json = out_dir / "summary.json"
+    better = (int(np.sum(final_errs < batch_errs[:len(final_errs)]))
+              if has_gt and len(batch_errs) else None)
     summary_data = {
         "run_id":          run_id,
         "n_frames":        n,
         "n_with_gt":       len(final_errs),
         "gate_passes":     gate_count,
-        "online_mean_m":   float(np.mean(final_errs)),
-        "online_median_m": float(np.median(final_errs)),
-        "online_min_m":    float(np.min(final_errs)),
-        "online_max_m":    float(np.max(final_errs)),
-        "online_std_m":    float(np.std(final_errs)),
-        "batch_mean_m":    float(np.mean(batch_errs)) if len(batch_errs) else None,
-        "homo_mean_m":     float(np.mean(homo_errs))  if len(homo_errs)  else None,
+        "online_mean_m":   float(np.mean(final_errs))   if has_gt else None,
+        "online_median_m": float(np.median(final_errs)) if has_gt else None,
+        "online_min_m":    float(np.min(final_errs))    if has_gt else None,
+        "online_max_m":    float(np.max(final_errs))    if has_gt else None,
+        "online_std_m":    float(np.std(final_errs))    if has_gt else None,
+        "batch_mean_m":    float(np.mean(batch_errs))   if len(batch_errs) else None,
+        "homo_mean_m":     float(np.mean(homo_errs))    if len(homo_errs)  else None,
         "better_than_batch": better,
-        "pct_under_50m":   float(np.mean(final_errs <= 50) * 100),
-        "pct_under_100m":  float(np.mean(final_errs <= 100) * 100),
+        "pct_under_50m":   float(np.mean(final_errs <= 50)  * 100) if has_gt else None,
+        "pct_under_100m":  float(np.mean(final_errs <= 100) * 100) if has_gt else None,
     }
+    summary_json = out_dir / "summary.json"
     summary_json.write_text(json.dumps(summary_data, indent=2), encoding="utf-8")
 
-    # Also save per-frame error table
     merged["final_err_m"] = pd.Series(
         [_hav(r.final_lat, r.final_lon, r.gps_lat, r.gps_lon)
          if pd.notna(r.gps_lat) else None

@@ -428,7 +428,7 @@ class TemporalSearcher:
             "best_tile": (meta_result["top3_tiles"][0][0],
                           meta_result["top3_tiles"][0][1]) if meta_result["top3_tiles"] else None,
             "ranked_tiles": meta_result["top3_tiles"],
-            "meta_tile_path": str(meta_result["meta_tile_path"]),
+            "meta_tile_path": meta_result["meta_tile_path"],
             "meta_tile_verified": meta_result["verified"],
             "verification_matches": meta_result["verification_matches"],
             "semantic_confidence": confirm_result["confidence"],

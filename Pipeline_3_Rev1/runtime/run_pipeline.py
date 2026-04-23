@@ -44,20 +44,23 @@ from src.image_utils import load_image
 from src.geometric_matcher import initialize_matcher
 from src.semantic_model import load_semantic_model
 from src.temporal_searcher import TemporalSearcher
-from src.ekf_ins import (preprocess_imu_csv, ErrorStateEKF,
-                          step_ekf, barometric_altitude)
+from src.ekf_ins import (ErrorStateEKF, step_ekf, barometric_altitude)
+from runtime.simconnect_adapter import FileSource
 
 # ── algorithm constants ───────────────────────────────────────────────────────
 LOOKAHEAD_M             = 110.0
 R_HIGH                  = 30.0 ** 2
 R_MED                   = 60.0 ** 2
-TURN_ROLL_THRESHOLD_RAD = 0.26
-TURN_R_MULTIPLIER       = 3.0
+TURN_ROLL_THRESHOLD_RAD = 0.35   # ~20° — only inflate R for steep banks
+TURN_R_MULTIPLIER       = 2.0    # gentler de-weighting; circular flight tested OK
 
 # ── CSV column order ──────────────────────────────────────────────────────────
 RESULT_COLUMNS = [
     "frame_idx", "timestamp", "image_name",
     "final_lat", "final_lon", "heading_deg",
+    "altitude_m", "roll_deg", "pitch_deg",
+    "vel_n", "vel_e", "vel_d",
+    "gps_lat", "gps_lon", "gps_alt_m",
     "method", "gate_pass",
     "search_time_s", "cs_shape", "inliers", "semantic_conf",
     "homo_lat", "homo_lon", "homo_corrected_lat", "homo_corrected_lon",
@@ -183,15 +186,17 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
     tiles_tested  = result.get("tiles_tested", 0)
     ver_matches   = result.get("verification_matches", 0)
 
-    # Lookahead correction
+    # Lookahead correction — scale by cos(bank) because during a banked turn
+    # the camera's forward component decreases, reducing the ground footprint offset.
     homo_lat_raw = homo_lon_raw = None
     homo_corr_lat = homo_corr_lon = None
     if homo_pos is not None:
         homo_lat_raw, homo_lon_raw = homo_pos
         if LOOKAHEAD_M > 0:
             h_rad = math.radians(ekf_yaw)
-            corr_north = -LOOKAHEAD_M * math.cos(h_rad)
-            corr_east  = -LOOKAHEAD_M * math.sin(h_rad)
+            effective_lookahead = LOOKAHEAD_M * math.cos(bank_rad)
+            corr_north = -effective_lookahead * math.cos(h_rad)
+            corr_east  = -effective_lookahead * math.sin(h_rad)
             homo_corr_lat = (homo_lat_raw
                              + corr_north / 111320.0)
             homo_corr_lon = (homo_lon_raw
@@ -213,6 +218,7 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
     final_lat, final_lon = final["latitude"], final["longitude"]
     pos_sigma = math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9]))
 
+    gps_alt_ft = row_dict.get("altitude")
     result_row = {
         "frame_idx":          frame_idx,
         "timestamp":          ts,
@@ -220,6 +226,15 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
         "final_lat":          final_lat,
         "final_lon":          final_lon,
         "heading_deg":        ekf_yaw,
+        "altitude_m":         round(final["altitude"], 2),
+        "roll_deg":           round(final["roll"], 3),
+        "pitch_deg":          round(final["pitch"], 3),
+        "vel_n":              round(final["vel_n"], 3),
+        "vel_e":              round(final["vel_e"], 3),
+        "vel_d":              round(final["vel_d"], 3),
+        "gps_lat":            row_dict.get("latitude"),
+        "gps_lon":            row_dict.get("longitude"),
+        "gps_alt_m":          round(gps_alt_ft * 0.3048, 2) if gps_alt_ft is not None else None,
         "method":             result.get("method", ""),
         "gate_pass":          int(gate_pass),
         "search_time_s":      round(search_time, 4),
@@ -244,27 +259,11 @@ def run_file_mode(args, run_dir: Path, run_id: str):
     frames_dir = args.frames_dir or config.QUERY_FRAMES_DIR
     start_row  = args.start_row
 
-    imu_log  = preprocess_imu_csv(imu_csv)
-    raw_df   = pd.read_csv(imu_csv)
-
-    frame_files = sorted(Path(frames_dir).glob("frame_*.jpg"))
-    frame_map   = {}
-    for fp in frame_files:
-        ts_str = fp.stem.replace("frame_", "")
-        try:
-            frame_map[round(float(ts_str), 3)] = fp
-        except ValueError:
-            pass
-
-    aligned = []
-    for idx in range(start_row, len(imu_log)):
-        row = imu_log.iloc[idx]
-        ts_rounded = round(row["timestamp"], 3)
-        if ts_rounded in frame_map:
-            aligned.append((idx, row["timestamp"], frame_map[ts_rounded]))
-
-    if args.max_frames:
-        aligned = aligned[:args.max_frames]
+    # FileSource handles alignment and provides raw_df for EKF stepping.
+    # No batch EKF (preprocess_imu_csv) needed — that only exists for GT comparison.
+    src    = FileSource(imu_csv, frames_dir)
+    raw_df = src.raw_df
+    aligned = list(src.iter_aligned(start_row, args.max_frames))
 
     print(f"[run_pipeline] run_id={run_id}  source=file  frames={len(aligned)}")
     print(f"[run_pipeline] output: {run_dir}")
@@ -284,7 +283,7 @@ def run_file_mode(args, run_dir: Path, run_id: str):
         writer = csv.DictWriter(f, fieldnames=RESULT_COLUMNS)
         writer.writeheader()
 
-        for i, (csv_idx, ts, frame_path) in enumerate(aligned):
+        for i, (csv_idx, _row_dict, ts, frame_path) in enumerate(aligned):
             final_lat, final_lon, prev_ts_ekf, result_row = _process_one_frame(
                 i, csv_idx, ts, frame_path,
                 raw_df, ekf, prev_ts_ekf, searcher)
@@ -336,8 +335,8 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
 
     lat0     = row["latitude"]
     lon0     = row["longitude"]
-    alt0     = barometric_altitude(row.get("barometer_pressure", 1013.25))
-    heading0 = math.degrees(row.get("heading_magnetic", 0.0))
+    alt0     = barometric_altitude(row.get("barometer_pressure") or 1013.25)
+    heading0 = math.degrees(row.get("heading_magnetic") or 0.0)
     ekf      = ErrorStateEKF(lat0, lon0, alt0, heading0, None)
     prev_ts  = row.get("timestamp", time.time())
     print(f"[run_pipeline] EKF bootstrapped: ({lat0:.6f}, {lon0:.6f})  yaw={heading0:.1f}°")
@@ -348,6 +347,7 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
     gate_count = 0
     t0         = time.perf_counter()
     last_frame_id = None
+    last_imu_ts   = None   # guards against repeated step_ekf on same row
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=RESULT_COLUMNS)
@@ -356,10 +356,16 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
         try:
             while max_frames is None or frame_idx < max_frames:
                 # ── EKF predict at background-thread IMU rate ──────────────
+                # Only step when a genuinely new IMU row arrives; calling
+                # step_ekf with the same row repeatedly drives P → 0 because
+                # sensor updates (baro, accel/mag, airspeed) run each call.
                 row = source.get_latest_row()
                 if row:
-                    step_ekf(ekf, row, prev_ts)
-                    prev_ts = row.get("timestamp", time.time())
+                    row_ts = row.get("timestamp")
+                    if row_ts is not None and row_ts != last_imu_ts:
+                        step_ekf(ekf, row, prev_ts)
+                        prev_ts = row_ts
+                        last_imu_ts = row_ts
 
                 # ── Visual processing when a new frame arrives ─────────────
                 frame_img, frame_id = source.get_latest_frame()
@@ -401,12 +407,14 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
 
                 homo_lat_raw = homo_lon_raw = homo_corr_lat = homo_corr_lon = None
                 r_used = None
+                bank_rad = abs(imu_data["roll"])
 
                 if homo_pos is not None:
                     homo_lat_raw, homo_lon_raw = homo_pos
                     h_rad = math.radians(ekf_yaw)
-                    corr_north = -LOOKAHEAD_M * math.cos(h_rad)
-                    corr_east  = -LOOKAHEAD_M * math.sin(h_rad)
+                    effective_lookahead = LOOKAHEAD_M * math.cos(bank_rad)
+                    corr_north = -effective_lookahead * math.cos(h_rad)
+                    corr_east  = -effective_lookahead * math.sin(h_rad)
                     homo_corr_lat = (homo_lat_raw
                                      + corr_north / 111320.0)
                     homo_corr_lon = (homo_lon_raw
@@ -414,7 +422,6 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                                                     * math.cos(math.radians(homo_lat_raw))))
                     homo_pos = (homo_corr_lat, homo_corr_lon)
 
-                    bank_rad = abs(imu_data["roll"])
                     r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
                     if bank_rad > TURN_ROLL_THRESHOLD_RAD:
                         r_used *= TURN_R_MULTIPLIER
@@ -426,9 +433,23 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                                             R_pos_m2=r_used)
                         gate_count += 1
 
+                if not gate_pass:
+                    # Live mode: SimConnect GPS is available even when visual
+                    # localization fails.  Feed it as a very loose anchor
+                    # (R = 200² = 40 000 m²) so the EKF search region stays
+                    # inside the reference map.  Visual updates (R = 900–3 600 m²)
+                    # still dominate whenever they occur.
+                    sim_lat = row.get("latitude") if row else None
+                    sim_lon = row.get("longitude") if row else None
+                    if (sim_lat is not None and sim_lon is not None
+                            and abs(float(sim_lat)) > 1.0):
+                        ekf.update_position(float(sim_lat), float(sim_lon),
+                                            R_pos_m2=200.0 ** 2)
+
                 final = ekf.get_state()
                 pos_sigma = math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9]))
 
+                gps_alt_ft = row.get("altitude") if row else None
                 result_row = {
                     "frame_idx":          frame_idx,
                     "timestamp":          ts,
@@ -436,6 +457,15 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                     "final_lat":          final["latitude"],
                     "final_lon":          final["longitude"],
                     "heading_deg":        ekf_yaw,
+                    "altitude_m":         round(final["altitude"], 2),
+                    "roll_deg":           round(final["roll"], 3),
+                    "pitch_deg":          round(final["pitch"], 3),
+                    "vel_n":              round(final["vel_n"], 3),
+                    "vel_e":              round(final["vel_e"], 3),
+                    "vel_d":              round(final["vel_d"], 3),
+                    "gps_lat":            row.get("latitude") if row else None,
+                    "gps_lon":            row.get("longitude") if row else None,
+                    "gps_alt_m":          round(gps_alt_ft * 0.3048, 2) if gps_alt_ft is not None else None,
                     "method":             result.get("method", ""),
                     "gate_pass":          int(gate_pass),
                     "search_time_s":      round(result.get("search_time", 0.0), 4),

@@ -13,7 +13,6 @@ Entry point:
 import numpy as np
 import pandas as pd
 import warnings
-from pathlib import Path
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -539,11 +538,17 @@ def step_ekf(ekf, row, prev_timestamp=None):
     ekf.predict(omega_meas, accel_body, dt)
 
     # ── Measurement updates ──
-    baro_alt = barometric_altitude(row['barometer_pressure'])
-    ekf.update_barometer(baro_alt, timestamp)
+    baro_raw = row['barometer_pressure']
+    if baro_raw is not None:
+        baro_alt = barometric_altitude(baro_raw)
+        ekf.update_barometer(baro_alt, timestamp)
 
-    mag_heading_deg = np.degrees(row['heading_magnetic'])
-    ekf.update_accel_mag(accel_body, mag_heading_deg)
+    heading_mag_raw = row.get('heading_magnetic')
+    if heading_mag_raw is not None:
+        mag_heading_deg = np.degrees(heading_mag_raw)
+        ekf.update_accel_mag(accel_body, mag_heading_deg)
+    else:
+        mag_heading_deg = ekf.get_state()['yaw']
 
     airspeed = row.get('airspeed_true', None)
     if airspeed is not None and not (isinstance(airspeed, float) and np.isnan(airspeed)):
@@ -710,57 +715,6 @@ def _check_gps_leakage(est_df, raw_df, n_check=20):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# STANDALONE RUNNER  (matches MSFS2020_IMU_Pipeline/ekf_ins.py API)
-# ═══════════════════════════════════════════════════════════════════
-
-def run_ekf_ins(input_file, output_file=None):
-    """Run Error-State EKF on an MSFS SimConnect IMU CSV file.
-
-    Writes an **estimate-only** CSV — no raw GPS columns — so the output
-    can never be confused with ground truth.
-
-    Output columns:
-        timestamp, latitude_est, longitude_est, altitude_est,
-        yaw_deg, roll_deg, pitch_deg,
-        pos_n, pos_e, pos_d, vel_n, vel_e, vel_d,
-        gyro_bias_x, gyro_bias_y, gyro_bias_z, wind_n, wind_e
-
-    Args:
-        input_file:  Path to CSV with MSFS IMU/GPS data.
-        output_file: Path for output CSV (default: auto-timestamped).
-
-    Returns:
-        output_file path (str).
-    """
-    print(f"Loading data from: {input_file}")
-    df = pd.read_csv(input_file)
-    ekf = _run_ekf_core(df)
-    est_df = _build_estimate_df(ekf)
-
-    _check_gps_leakage(est_df, df)
-
-    if output_file is None:
-        ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"ekf_ins_{ts_str}.csv"
-
-    est_df.to_csv(output_file, index=False)
-
-    # ── Summary ──
-    state = ekf.get_state()
-    lat0 = df['latitude'].iloc[0]
-    lon0 = df['longitude'].iloc[0]
-    print(f"\n  EKF processing complete: {len(df)} samples")
-    print(f"  Init GPS (row 0 only): {lat0:.6f} N, {lon0:.6f} E")
-    print(f"  Final estimate:        {state['latitude']:.6f} N, {state['longitude']:.6f} E")
-    print(f"  Displacement: N={state['pos_n']:.1f}m  E={state['pos_e']:.1f}m")
-    bias_mrad = state['gyro_bias'] * 1000
-    print(f"  Gyro bias: [{bias_mrad[0]:.3f}, {bias_mrad[1]:.3f}, {bias_mrad[2]:.3f}] mrad/s")
-    print(f"  Results saved to: {output_file}")
-
-    return output_file
-
-
-# ═══════════════════════════════════════════════════════════════════
 # PIPELINE 3 CONVENIENCE WRAPPER
 # ═══════════════════════════════════════════════════════════════════
 
@@ -806,21 +760,3 @@ def preprocess_imu_csv(csv_path):
 
     return result
 
-
-# ═══════════════════════════════════════════════════════════════════
-# CLI
-# ═══════════════════════════════════════════════════════════════════
-
-def main():
-    parser = argparse.ArgumentParser(
-        description='Error-State EKF for INS (MSFS SimConnect data)')
-    parser.add_argument('--input', type=str, required=True,
-                        help='Input IMU CSV file')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Output CSV file (default: auto-timestamped)')
-    args = parser.parse_args()
-    run_ekf_ins(args.input, args.output)
-
-
-if __name__ == "__main__":
-    main()
