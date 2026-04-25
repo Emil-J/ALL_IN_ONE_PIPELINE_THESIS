@@ -542,14 +542,17 @@ def step_ekf(ekf, row, prev_timestamp=None):
     ekf.predict(omega_meas, accel_body, dt)
 
     # ── Measurement updates ──
+    # PRIMARY: barometer_pressure → ISA formula (confirmed correct in all live runs).
+    # FALLBACK: pressure_altitude direct (Python SimConnect returns metres, NOT feet —
+    #   do NOT multiply by 0.3048; that would double-convert and give ~30% of true alt).
     baro_alt = None
-    pa = row.get('pressure_altitude')
-    if pa is not None and not (isinstance(pa, float) and math.isnan(pa)):
-        baro_alt = pa * 0.3048          # MSFS PRESSURE_ALTITUDE is feet → metres
+    bp = row.get('barometer_pressure')
+    if bp is not None and not (isinstance(bp, float) and math.isnan(bp)):
+        baro_alt = barometric_altitude(bp)
     else:
-        bp = row.get('barometer_pressure')
-        if bp is not None and not (isinstance(bp, float) and math.isnan(bp)):
-            baro_alt = barometric_altitude(bp)
+        pa = row.get('pressure_altitude')
+        if pa is not None and not (isinstance(pa, float) and math.isnan(pa)):
+            baro_alt = float(pa)        # metres — Python SimConnect returns SI units
     if baro_alt is not None:
         ekf.update_barometer(baro_alt, timestamp)
 

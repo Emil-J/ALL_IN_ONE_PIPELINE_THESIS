@@ -19,7 +19,7 @@ PREPROCESSING_ROOT = ALL_IN_ONE_ROOT / "Dataset_Preprocessing"
 # ═══════════════════════════════════════════════════════════════════
 
 # Reference TMS tileset — aerial imagery
-REFERENCE_AERIAL_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE_20260321_162024" / "aerial"
+REFERENCE_AERIAL_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" / "aerial"
 
 # Semantic model
 SEMANTIC_MODEL_PATH = ALL_IN_ONE_ROOT / "SemanticTerrainSegmentationModel" / "best.pth"
@@ -29,10 +29,10 @@ SEMANTIC_MODEL_PATH = ALL_IN_ONE_ROOT / "SemanticTerrainSegmentationModel" / "be
 # ═══════════════════════════════════════════════════════════════════
 
 # Semantic prediction tiles — matches existing structure used by pipeline
-REFERENCE_PREDICTION_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_VEJLE_20260321_162024" / "prediction"
+REFERENCE_PREDICTION_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" / "prediction"
 
 # SuperPoint precomputed features — HDF5 store
-REFERENCE_FEATURES_PATH = ALL_IN_ONE_ROOT / "Dataset_Preprocessing" / "reference_features.h5"
+REFERENCE_FEATURES_PATH = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" / "reference_features.h5"
 
 # ═══════════════════════════════════════════════════════════════════
 # TMS PARAMETERS

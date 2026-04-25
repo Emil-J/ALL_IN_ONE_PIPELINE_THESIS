@@ -27,7 +27,7 @@ Both sources produce row dicts matching the units step_ekf() expects
                                  NOT KOHLSMAN_SETTING_MB which is the QNH dial)
   latitude/longitude — degrees (GPS ground truth from SimConnect)
   altitude           — feet    (GPS altitude, PLANE_ALTITUDE)
-  pressure_altitude  — feet    (PRESSURE_ALTITUDE)
+  pressure_altitude  — metres  (PRESSURE_ALTITUDE; Python SimConnect returns SI, NOT feet)
   magnetic_compass   — degrees (MAGNETIC_COMPASS)
   timestamp          — seconds
 
@@ -291,7 +291,7 @@ class SimConnectLiveSource:
                     slow_cache["latitude"]          = aq.get("PLANE_LATITUDE")   # degrees (GPS GT)
                     slow_cache["longitude"]         = aq.get("PLANE_LONGITUDE")  # degrees (GPS GT)
                     slow_cache["altitude"]          = aq.get("PLANE_ALTITUDE")   # feet
-                    slow_cache["pressure_altitude"] = aq.get("PRESSURE_ALTITUDE")  # feet
+                    slow_cache["pressure_altitude"] = aq.get("PRESSURE_ALTITUDE")  # metres (Python SimConnect returns SI)
                     slow_cache["magnetic_compass"]  = aq.get("MAGNETIC_COMPASS")   # degrees
 
                 row = {
