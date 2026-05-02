@@ -202,6 +202,48 @@ DEBUG_SAVE_METATILES = False
 ACCUMULATE_HISTORY = False
 
 # ═══════════════════════════════════════════════════════════════════
+# OPTIONAL DATA CAPTURE FLAGS  (all independent — mix and match)
+# ═══════════════════════════════════════════════════════════════════
+
+# Save query frame JPEG per frame to:
+#   outputs/runs/<run_id>/flight_data/frame_NNNN.jpg
+# Use when: you want to visually review what the drone saw.
+# Timing impact: ~10-20 ms/frame (JPEG encode + write).
+SAVE_QUERY_FRAMES = False
+
+# Save raw IMU row JSON per frame to:
+#   outputs/runs/<run_id>/flight_data/frame_NNNN_imu.json
+# Use when: you want the raw sensor data for offline re-processing.
+# Timing impact: <1 ms/frame.
+SAVE_IMU_ROWS = False
+
+# Save PX4 GPS_INPUT CSV (MAVLink MSG 232) to:
+#   outputs/runs/<run_id>/px4_gps_input.csv
+# Also saves per-frame analysis extras (n_eff, particle_spread, homo offsets) to:
+#   outputs/runs/<run_id>/analysis_extras.csv
+# Use when: you need PX4 integration output or deeper analysis beyond results.csv.
+# Timing impact: <1 ms/frame.
+SAVE_ANALYSIS_DATA = False
+
+# Save per-component inference timing to:
+#   outputs/runs/<run_id>/timing_data.csv
+# Use when: you want a timing breakdown per pipeline component.
+# Timing impact: <0.1 ms/frame (time.perf_counter calls only).
+SAVE_TIMING_DATA = False
+
+# Save full per-frame pipeline trace to:
+#   outputs/runs/<run_id>/pipeline_data/frame_NNNN/
+# Saves per frame: query.jpg, query_rotated.jpg, semantic_mask.png,
+#   reference_tile.png, matches.png, imu.json, trace.json
+# trace.json contains: EKF state before/after, PF state, tile candidate table,
+#   homography quality, semantic conf, gate decision — every step A-to-Z.
+# Use when: you need step-by-step data for analysis or research figures.
+# Implies: SAVE_QUERY_FRAMES + SAVE_IMU_ROWS behaviour (saved to pipeline_data/).
+# Timing impact: ~80-150 ms/frame (image encoding + multiple disk writes).
+# Intended for short runs or selected-frame analysis — not full 970-frame runs.
+SAVE_PIPELINE_TRACE = True
+
+# ═══════════════════════════════════════════════════════════════════
 # RUNTIME OUTPUT PATHS
 # ═══════════════════════════════════════════════════════════════════
 

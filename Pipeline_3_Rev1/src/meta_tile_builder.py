@@ -345,5 +345,7 @@ class MetaTileBuilder:
             "verification_matches": match_count,
             "verified": verified,
             "first_pass_candidates": len(first_pass_results),
+            "first_pass_tiles": first_pass_results,
+            "second_pass_tiles": [(tx, ty) for tx, ty, _ in second_pass_results],
             "match_result": match_result,
         }

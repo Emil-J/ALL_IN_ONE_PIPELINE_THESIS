@@ -1,0 +1,1192 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+\geometry{margin=2.5cm}
+
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codeblue}{rgb}{0.0,0.3,0.6}
+\definecolor{codegreen}{rgb}{0.1,0.5,0.1}
+\definecolor{codepurple}{rgb}{0.4,0.0,0.6}
+
+\lstset{
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codeblue}\bfseries,
+    commentstyle=\color{codegreen}\itshape,
+    stringstyle=\color{codepurple},
+    breaklines=true,
+    frame=single,
+    framerule=0.5pt,
+    rulecolor=\color{gray},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=6pt,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    language=Python
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codeblue,
+    urlcolor=codeblue,
+    citecolor=codeblue
+}
+
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bv}{\mathbf{v}}
+\newcommand{\bg}{\mathbf{g}}
+\newcommand{\bq}{\mathbf{q}}
+\newcommand{\bz}{\mathbf{z}}
+\newcommand{\bh}{\mathbf{h}}
+\newcommand{\bp}{\mathbf{p}}
+\newcommand{\bw}{\mathbf{w}}
+\newcommand{\bomega}{\boldsymbol{\omega}}
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\skew}[1]{\left\lfloor#1\right\rfloor_\times}
+
+% ─────────────────────────────────────────────────────────────────────
+\title{
+    \Large\textbf{Pipeline 3 --- GPS-Free Drone Localisation}\\[0.5em]
+    \large Complete Chronological Technical Breakdown\\[0.3em]
+    \normalsize Error-State EKF $\cdot$ SuperPoint+LightGlue $\cdot$ Particle Filter $\cdot$
+    Semantic Segmentation $\cdot$ Homography Localisation
+}
+\author{Emil Jagni\'c \\ \small All\_In\_One\_Pipeline / Pipeline\_3\_Rev1}
+\date{April 2026}
+% ─────────────────────────────────────────────────────────────────────
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Architecture Overview}
+% ═══════════════════════════════════════════════════════════════════════════
+
+Pipeline 3 estimates drone GPS position without access to a GPS receiver. It
+fuses three independent information sources:
+
+\begin{enumerate}
+    \item \textbf{Inertial Measurement Unit (IMU)} --- gyroscopes, accelerometers,
+          barometer, airspeed, magnetometer, integrated via an Error-State Extended
+          Kalman Filter (ES-EKF) for dead-reckoned position.
+    \item \textbf{Visual feature matching} --- SuperPoint keypoints and LightGlue
+          matches between the drone's camera frame and a precomputed TMS reference
+          tile map, producing a sub-tile GPS measurement via homography.
+    \item \textbf{Semantic terrain segmentation} --- a UNet++ semantic model
+          classifies terrain classes in the query frame; class centroid alignment
+          with precomputed tile predictions provides an independent confirmation
+          of the feature-matching result.
+\end{enumerate}
+
+The end-to-end data flow for one frame is shown below.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.82\textwidth}
+\begin{verbatim}
+t1: frame captured
+  |
+  +-- step_ekf(row, prev_ts)       --> ekf_state (lat, lon, yaw, sigma)
+  |
+  +-- rotate_image(frame, -yaw)    --> query_rotated  (north-aligned)
+  |   resize to <= 1280 px         --> query_for_match
+  |
+  +-- preprocess(frame)            --> query_512x512
+  |   semantic_model.predict()     --> class_mask (512x512 uint8)
+  |
+  +-- meta_tile_builder.run()
+  |     find_tiles_within_radius() --> candidate tiles
+  |     SP+LG match x N            --> first_pass ranked tiles
+  |     8-neighbour expand top-1   --> second_pass tiles
+  |     stitch top-3 --> meta_tile
+  |     SP+LG verify(meta_tile)    --> verification_matches
+  |
+  +-- compute_dual_homography()    --> H, CShape, inliers
+  |   extract_visual_measurements  --> homo_position
+  |   look-ahead correction        --> homo_corrected
+  |
+  +-- semantic_confirmer.confirm() --> sem_conf
+  |
+  +-- if gate_pass:
+  |     compute adaptive R
+  |     ekf.update_position(homo_corrected, R)
+  |
+  +-- ekf.get_state()              --> (final_lat, final_lon, sigma)
+t2 = t1 + dt: GPS estimate delivered  (dt ~ 2.8 s)
+\end{verbatim}
+\end{minipage}
+\caption{Per-frame pipeline data flow (Pipeline 3).}
+\end{figure}
+
+\noindent The six pipeline phases are detailed in the following sections.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 1 --- Error-State EKF (IMU Dead Reckoning)}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/ekf\_ins.py}
+
+\subsection{Why an Error-State Formulation?}
+
+A standard Extended Kalman Filter applied directly to a quaternion state requires
+constrained optimisation ($\norm{\bq} = 1$). The error-state formulation avoids
+this by separating the state into:
+\begin{itemize}
+    \item \textbf{Nominal state} $\tilde{\bq}$: the current best orientation
+          estimate (quaternion), propagated through the nonlinear kinematics
+          exactly.
+    \item \textbf{Error state} $\delta\bx$: a small perturbation around the
+          nominal state, maintained in a linear Kalman filter.
+\end{itemize}
+
+Because the error is small, the small-angle approximation
+$\sin(\delta\theta) \approx \delta\theta$ holds, linearisation is accurate,
+and the unit-norm constraint is trivially satisfied by normalising $\tilde{\bq}$
+after each update. This follows Algorithm~4 from Kok, Hol, Sch\"{o}n
+(2017)~\cite{kok2017}.
+
+\subsection{State Vector}
+
+The EKF maintains a $10$-dimensional error state:
+
+\begin{equation}
+    \delta\bx =
+    \begin{bmatrix}
+        \delta\btheta \\ \delta\mathbf{b}_g \\ \delta\bw \\ \delta\bp
+    \end{bmatrix} \in \R^{10}
+    \label{eq:error_state}
+\end{equation}
+
+where:
+\begin{align*}
+    \delta\btheta &\in \R^3 \quad \text{orientation error (small-angle, body frame)} \\
+    \delta\mathbf{b}_g &\in \R^3 \quad \text{gyroscope bias error} \\
+    \delta\bw &\in \R^2 \quad \text{wind velocity error (North--East, m/s)} \\
+    \delta\bp &\in \R^2 \quad \text{horizontal position error (North--East, metres)}
+\end{align*}
+
+The corresponding $10 \times 10$ covariance matrix $P$ is initialised as:
+
+\begin{equation}
+    P_0 =
+    \begin{bmatrix}
+        0.5 \, I_3 & & & \\
+        & 0.01 \, I_3 & & \\
+        & & 25 \, I_2 & \\
+        & & & 40000 \, I_2
+    \end{bmatrix}
+\end{equation}
+
+The initial position uncertainty of $200$ m standard deviation ($200^2 = 40\,000$
+m$^2$) reflects that the pipeline starts with no visual fix.
+
+\subsection{MSFS Axis Mapping}
+
+Microsoft Flight Simulator (MSFS) uses a \emph{left-handed} body frame:
+$X_b = \text{right}$, $Y_b = \text{up}$, $Z_b = \text{forward}$.
+Standard INS uses a \emph{right-handed} NED body frame:
+$X_{NED} = \text{forward}$, $Y_{NED} = \text{right}$, $Z_{NED} = \text{down}$.
+
+\paragraph{Accelerometer remapping.}
+MSFS \texttt{ACCELERATION\_BODY\_*} variables return \emph{coordinate
+acceleration} in ft/s$^2$ --- what an accelerometer with gravity blocked
+would read. Real accelerometers output specific force
+$\mathbf{f} = \mathbf{a}_{coord} + R_{nb}^\top \mathbf{g}_n$, where gravity
+must be added back. Since MSFS provides accurate attitude angles, gravity is
+synthesised directly:
+
+\begin{equation}
+    \mathbf{g}_b =
+    \begin{bmatrix}
+        -g \sin\theta \\ g \sin\phi\cos\theta \\ g\cos\phi\cos\theta
+    \end{bmatrix}, \qquad
+    \mathbf{f}_b =
+    \underbrace{
+        \begin{bmatrix} a_{Z,MSFS} \\ a_{X,MSFS} \\ -a_{Y,MSFS} \end{bmatrix}
+    }_{\text{axis remap}}
+    \cdot 0.3048 + \mathbf{g}_b
+    \label{eq:accel_remap}
+\end{equation}
+
+where $\theta$ is pitch and $\phi$ is bank (roll), both in radians.
+The factor $0.3048$ converts ft/s$^2$ to m/s$^2$.
+
+\paragraph{Gyroscope remapping.}
+Gyroscope readings are pseudovectors. Under the MSFS$\to$NED axis permutation,
+the two sign changes (Y-negation for the right-hand rule, and handedness flip)
+cancel exactly for pseudovectors. Therefore \emph{no sign negation} is applied:
+
+\begin{equation}
+    \bomega_{meas} =
+    \begin{bmatrix} \omega_{Z,MSFS} \\ \omega_{X,MSFS} \\ \omega_{Y,MSFS} \end{bmatrix}
+    \quad \text{(rad/s)}
+\end{equation}
+
+\subsection{Predict Step}
+
+\begin{lstlisting}[caption={EKF predict step (ekf\_ins.py:213--247).}]
+def predict(self, omega_meas, accel_body, dt):
+    omega_corrected = omega_meas - self.gyro_bias
+    dq = expq(dt/2 * omega_corrected)   # quaternion increment
+    self.q_tilde = normalize(q_tilde x dq)
+    R_nb = quat_to_rotation_matrix(self.q_tilde)
+
+    F = eye(10)
+    F[0:3, 3:6] = 0.5 * dt * R_nb    # orientation-bias coupling
+    # position block: F[8:10, 8:10] = I_2  (already from eye)
+
+    self.P = F @ P @ F.T + Q
+    self.P[8:10, 8:10] += eye(2) * sigma_pos**2 * dt
+\end{lstlisting}
+
+\noindent The orientation is propagated via the quaternion exponential map:
+
+\begin{equation}
+    \exp_q(\bomega) =
+    \begin{cases}
+        \begin{bmatrix} \cos\frac{\theta}{2} \\[4pt]
+        \dfrac{\sin(\theta/2)}{\theta}\,\bomega \end{bmatrix} & \theta > 0 \\[10pt]
+        \begin{bmatrix} 1 \\ \mathbf{0} \end{bmatrix} & \theta = 0
+    \end{cases}, \quad \theta = \norm{\bomega}
+    \label{eq:expq}
+\end{equation}
+
+The state transition matrix $F$ propagates the covariance. The position error
+block evolves as a random walk:
+
+\begin{equation}
+    P_{pos}^- = P_{pos} + \sigma_p^2 \, \Delta t \, I_2
+    \label{eq:pos_rw}
+\end{equation}
+
+with $\sigma_p = 5.0$ m/$\sqrt{\text{s}}$. Uncertainty grows at approximately
+$5\sqrt{\Delta t}$ metres per IMU step during dead reckoning.
+
+Velocity is integrated in NED:
+
+\begin{equation}
+    \dot{\bv}_n = R_{nb}\,\mathbf{f}_b - \mathbf{g}_n
+    \label{eq:vel_int}
+\end{equation}
+
+\subsection{Barometer Update}
+
+The International Standard Atmosphere formula converts pressure to altitude:
+
+\begin{equation}
+    h = 44330 \left( 1 - \left(\frac{P}{P_0}\right)^{0.1903} \right), \quad
+    P_0 = 1013.25 \text{ mbar}
+    \label{eq:baro}
+\end{equation}
+
+Vertical velocity is estimated by finite differences:
+$v_d = -(h_k - h_{k-1}) / \Delta t$. This update is performed outside the
+Kalman framework --- altitude is treated as a direct measurement.
+
+\subsection{Accelerometer and Magnetometer Update}
+
+The accelerometer observation model exploits gravity as a reference vector.
+In the body frame, the expected specific force (near-hover / slow manoeuvre)
+is:
+
+\begin{equation}
+    \hat{\mathbf{f}}_b = R_{bn}\,\mathbf{g}_n
+    \label{eq:accel_model}
+\end{equation}
+
+The linearised observation matrix for the orientation error states is:
+
+\begin{equation}
+    H_{accel} = R_{bn}\,\skew{\mathbf{g}_n}
+    \label{eq:H_accel}
+\end{equation}
+
+where $\skew{\cdot}$ is the skew-symmetric matrix operator. The third column
+of $H_{accel}$ is zeroed because yaw rotation about gravity is unobservable
+from gravity direction alone.
+
+During manoeuvres (detected by $\norm{a_h} > 2$ m/s$^2$ in the horizontal NED
+plane), the accelerometer noise is inflated by factor 100 to de-weight the
+update.
+
+The magnetometer provides a scalar heading innovation:
+
+\begin{equation}
+    \tilde{y}_{mag} = \text{atan2}\!\left(\sin(\psi_{meas} - \hat{\psi}),\,
+    \cos(\psi_{meas} - \hat{\psi})\right)
+    \label{eq:heading_innov}
+\end{equation}
+
+Angle-wrapping ensures the innovation is always in $(-\pi, \pi]$. The
+observation matrix selects only the yaw component from the error state:
+
+\begin{equation}
+    H_{mag} = \begin{bmatrix} 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \end{bmatrix}
+    \label{eq:H_mag}
+\end{equation}
+
+\subsection{Airspeed Update}
+
+Airspeed $V_{air}$ is measured by the pitot tube. The observation model
+decomposes it into NED components along the heading $\psi$:
+
+\begin{equation}
+    \bz =
+    \begin{bmatrix} V_{air}\cos\psi \\ V_{air}\sin\psi \end{bmatrix} =
+    \begin{bmatrix} v_n + w_n \\ v_e + w_e \end{bmatrix}
+    \label{eq:airspeed_model}
+\end{equation}
+
+The Jacobian couples only wind states (indices 6, 7):
+
+\begin{equation}
+    H_{air} = \begin{bmatrix}
+        0 & \cdots & 0 & 1 & 0 & 0 & 0 \\
+        0 & \cdots & 0 & 0 & 1 & 0 & 0
+    \end{bmatrix}_{2 \times 10}
+\end{equation}
+
+After the Kalman gain is applied, the velocity estimate is blended with the
+airspeed-derived velocity using a factor $\alpha$ that adapts to flight
+conditions:
+
+\begin{equation}
+    \alpha =
+    \begin{cases}
+        1.0 & \text{wind converged, no manoeuvre} \\
+        0.8 & \text{wind not yet converged} \\
+        0.5 & \text{active manoeuvre}
+    \end{cases}
+\end{equation}
+
+\subsection{Visual Position Update}
+
+This is the core closed-loop step that fuses the homography GPS measurement
+into the EKF. The measurement $({\varphi}_{meas}, {\lambda}_{meas})$ in degrees is
+converted to NED metres relative to the EKF reference origin
+$({\varphi}_0, {\lambda}_0)$:
+
+\begin{equation}
+    \bz = \begin{bmatrix}
+        (\varphi_{meas} - \varphi_0) \cdot R_E \\
+        (\lambda_{meas} - \lambda_0) \cdot R_E \cos\varphi_0
+    \end{bmatrix}
+    \label{eq:visual_meas}
+\end{equation}
+
+The observation matrix selects the position error states at indices 8--9:
+
+\begin{equation}
+    H_{vis} =
+    \begin{bmatrix}
+        0 & \cdots & 0 & 1 & 0 \\
+        0 & \cdots & 0 & 0 & 1
+    \end{bmatrix}_{2 \times 10}
+    \label{eq:H_vis}
+\end{equation}
+
+Standard Kalman measurement update:
+
+\begin{align}
+    \tilde{\mathbf{y}} &= \bz - \bh = \bz - \begin{bmatrix}p_n \\ p_e\end{bmatrix} \\
+    S &= H_{vis} P H_{vis}^\top + R \\
+    K &= P H_{vis}^\top S^{-1} \\
+    \delta\bx &= K\,\tilde{\mathbf{y}} \\
+    P^+ &= P - K S K^\top
+    \label{eq:kalman}
+\end{align}
+
+\noindent The noise matrix $R = r_k I_2$ is set adaptively per frame (see
+Section~\ref{sec:adaptive_R}).
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 2 --- Frame Capture and Preprocessing Bifurcation}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary files:} \texttt{runtime/run\_pipeline.py},
+\texttt{src/image\_utils.py}
+
+\subsection{Frame Acquisition}
+
+\paragraph{SimConnect (live) mode.}
+\texttt{SimConnectLiveSource.get\_latest\_frame()} returns
+\texttt{(frame\_img, frame\_id, frame\_capture\_ts)}. The timestamp
+$t_1 = $ \texttt{frame\_capture\_ts} is recorded immediately. The pipeline
+returns a GPS estimate at $t_1 + \Delta t_{inf}$, during which the drone has
+physically moved:
+
+\begin{equation}
+    d_{lag} = \int_{t_1}^{t_1 + \Delta t_{inf}} \norm{\bv(t)}\,dt
+    \approx \norm{\bv} \cdot \Delta t_{inf}
+    \label{eq:inference_lag}
+\end{equation}
+
+At $\Delta t_{inf} \approx 2.8$ s and $\norm{\bv} \approx 40$ m/s, this gives
+$d_{lag} \approx 112$ m --- the camera look-ahead offset observed empirically
+and corrected in Phase 6.
+
+\paragraph{File mode.}
+\texttt{load\_image(frame\_path)} reads a JPEG and returns a
+\texttt{uint8} RGB array at original resolution. No resizing is performed at
+this stage.
+
+\subsection{Preprocessing Bifurcation}
+
+The pipeline maintains two completely separate preprocessing paths to avoid
+the ``black border'' keypoint problem:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Path} & \textbf{Input} & \textbf{Transform} & \textbf{Output} & \textbf{Consumer} \\
+\midrule
+Feature matching & 1920$\times$1079 RGB & Heading rotation + longest-edge resize & ${\leq}$1280$\times N$ RGB & SuperPoint+LightGlue \\
+Semantic segm.  & 1920$\times$1079 RGB & Resize 512$\times$288, pad to 512$\times$512 & 512$\times$512 RGB & UNet++ \\
+\bottomrule
+\end{tabular}
+\caption{The two preprocessing paths. Mixing them would cause black-border
+keypoints (feature path) or incorrect class probabilities (semantic path).}
+\end{table}
+
+\paragraph{Why separate?}
+SuperPoint was trained on natural images at their original resolution.
+Padding introduces black borders that SuperPoint detects as high-contrast
+edge keypoints --- garbage features at tile boundaries that poison the
+homography estimate. The semantic UNet++ requires a fixed 512$\times$512
+input by architecture design.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 3a --- Semantic Terrain Segmentation}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/semantic\_model.py}
+
+\subsection{Model Architecture}
+
+The segmentation model is \textbf{UNet++} with an \textbf{EfficientNet-B3}
+encoder, producing a 6-class pixel-wise segmentation mask.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}rll@{}}
+\toprule
+\textbf{Class ID} & \textbf{Class} & \textbf{Colour (RGB)} \\
+\midrule
+0 & Waterbodies & (4, 4, 255) \\
+1 & Forest / Trees & (0, 167, 2) \\
+2 & Land & (243, 255, 150) \\
+3 & Railway & (193, 105, 53) \\
+4 & Roads & (255, 0, 231) \\
+5 & Buildings & (150, 150, 150) \\
+\bottomrule
+\end{tabular}
+\caption{Semantic terrain classes output by the UNet++ model.}
+\end{table}
+
+\subsection{Preprocessing for Semantic Path}
+
+\begin{lstlisting}[caption={Semantic preprocessing (image\_utils.py).}]
+def preprocess_query_frame(frame, resize_w=512, resize_h=288,
+                            target_size=512):
+    # Step 1: downsample preserving aspect ratio
+    resized = cv2.resize(frame, (resize_w, resize_h))   # 512x288
+    # Step 2: centre-pad to square
+    pad_top = (target_size - resize_h) // 2  # = 112 px
+    pad_bot = target_size - resize_h - pad_top
+    padded = np.pad(resized, ((pad_top, pad_bot), (0,0), (0,0)))
+    return padded  # 512x512
+\end{lstlisting}
+
+The vertical padding of $p_{top} = (512 - 288)/2 = 112$ px ensures the
+drone's field-of-view is centred in the square input, preserving the
+sky--ground geometry expected by the model's encoder.
+
+\subsection{Semantic Histogram Pre-filter}
+
+When \texttt{SEMANTIC\_PREFILTER\_ENABLED = True}, a
+\texttt{SemanticTileScorer} computes histogram overlap between the query
+semantic mask and each candidate tile's precomputed prediction mask
+\emph{before} feature matching. The score:
+
+\begin{equation}
+    s_{hist} = \sum_{c=0}^{5} \min(h^{(q)}_c,\, h^{(r)}_c)
+    \label{eq:hist_score}
+\end{equation}
+
+where $h^{(q)}_c$ and $h^{(r)}_c$ are normalised class-frequency histograms
+for query and reference respectively. Only the top-$K = 10$ candidates by
+$s_{hist}$ proceed to the expensive SuperPoint+LightGlue matching step.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 3b --- Heading Rotation}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/visual\_measurement.py}
+
+\subsection{Motivation}
+
+Reference tiles are north-aligned orthophotos. A drone flying at heading
+$\psi$ degrees sees the scene rotated by $\psi$ relative to the tile. Without
+correction, SuperPoint keypoints in the query frame are spatially offset from
+the corresponding reference keypoints by a rotation, which LightGlue cannot
+reliably handle.
+
+\subsection{Rotation with Canvas Expansion}
+
+The query frame is rotated by $-\psi$ (i.e.\ the negative heading) to produce
+a north-aligned view:
+
+\begin{lstlisting}[caption={Heading rotation (visual\_measurement.py).}]
+def rotate_image(img, angle_deg):
+    h, w = img.shape[:2]
+    cx, cy = w / 2, h / 2
+    M = cv2.getRotationMatrix2D((cx, cy), angle_deg, 1.0)
+    # Expand canvas to avoid cropping corners
+    cos_a, sin_a = abs(M[0,0]), abs(M[0,1])
+    new_w = int(h * sin_a + w * cos_a)
+    new_h = int(h * cos_a + w * sin_a)
+    M[0,2] += new_w/2 - cx
+    M[1,2] += new_h/2 - cy
+    rotated = cv2.warpAffine(img, M, (new_w, new_h))
+    return rotated, M   # M stored for inverse transform
+\end{lstlisting}
+
+The canvas dimensions after rotation are:
+
+\begin{equation}
+    w_{new} = h|\sin\alpha| + w|\cos\alpha|, \quad
+    h_{new} = h|\cos\alpha| + w|\sin\alpha|
+    \label{eq:canvas_size}
+\end{equation}
+
+The rotation matrix $M$ is stored so that matched keypoints can later be
+mapped back to the original frame coordinate system via the inverse transform,
+if needed for the nadir correction.
+
+\subsection{Performance Cap}
+
+The rotated image is resized so its longest edge does not exceed
+$d_{max} = 1280$ px:
+
+\begin{equation}
+    s = \frac{d_{max}}{\max(h_{rot}, w_{rot})}, \quad
+    (w', h') = (\lfloor s\,w_{rot}\rfloor, \lfloor s\,h_{rot}\rfloor)
+    \label{eq:resize}
+\end{equation}
+
+\texttt{INTER\_AREA} interpolation is used because it performs
+area-weighted averaging during downscaling, preserving fine texture details
+that SuperPoint relies on for repeatable keypoint detection. Bilinear
+interpolation (\texttt{INTER\_LINEAR}) introduces aliasing artefacts on
+downscaling.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 4 --- Tile Search}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Frame 0: Best-First Search (Cold Start)}
+
+\noindent\textbf{Primary file:} \texttt{src/best\_first\_search.py}
+
+On the first frame, no particle filter exists. The
+\texttt{BestFirstSearcher} exhaustively matches the rotated query against all
+tiles within $r_{BFS} = 500$ m of the EKF position, using a priority queue
+ordered by haversine distance.
+
+\paragraph{Haversine distance.}
+The great-circle distance between two GPS coordinates is:
+
+\begin{equation}
+    d = 2R_E \arcsin\!\sqrt{
+        \sin^2\!\frac{\Delta\varphi}{2} +
+        \cos\varphi_1\cos\varphi_2\,\sin^2\!\frac{\Delta\lambda}{2}
+    }
+    \label{eq:haversine}
+\end{equation}
+
+where $R_E = 6\,371\,000$ m. At TMS zoom 16 ($512$ px tiles), tile size is:
+
+\begin{equation}
+    T_{size} = \frac{2\pi R_E \cos\varphi}{2^{16}}
+    \approx 332 \text{ m} \quad (\varphi \approx 55.6^\circ\text{N})
+    \label{eq:tile_size}
+\end{equation}
+
+A 500 m radius covers approximately 7--12 tiles depending on exact position.
+
+\subsection{Frame 1+: Particle-Guided Two-Pass Search}
+
+\noindent\textbf{Primary files:} \texttt{src/particle\_filter.py},
+\texttt{src/meta\_tile\_builder.py}
+
+\subsubsection{Particle Filter Predict}
+
+The particle filter maintains $N = 100$ particles
+$\{(\bx_i, \hat{\psi}_i, w_i)\}_{i=1}^N$, where $\bx_i \in \R^2$ is position
+in TMS tile coordinates. The motion model per particle:
+
+\begin{align}
+    \bx_i^- &= \bx_i +
+        \frac{v \cdot \Delta t}{T_{size}}
+        \begin{bmatrix} \sin\hat{\psi}_i \\ -\cos\hat{\psi}_i \end{bmatrix}
+        + \mathcal{N}(0, \sigma_p^2)
+    \label{eq:pf_predict_pos} \\
+    \hat{\psi}_i^- &= \hat{\psi}_i + \dot{\psi}\,\Delta t
+        + \mathcal{N}(0, \sigma_\psi^2)
+    \label{eq:pf_predict_hdg}
+\end{align}
+
+where $v$ is speed (m/s), $\dot{\psi}$ is turn rate from the gyroscope, and
+the $Y$-axis is negated because TMS Y increases southward (opposite to
+geographic north). Process noise: $\sigma_p = 5$ m, $\sigma_\psi = 2^\circ$.
+
+The search region radius is:
+
+\begin{equation}
+    r_{search} = \max\!\left( \sigma_{pos,PF} \cdot T_{size},\; r_{min} \right), \quad
+    r_{min} = 500 \text{ m}
+    \label{eq:search_radius}
+\end{equation}
+
+The $r_{min}$ floor guarantees that at least one full tile is always included
+in the search, preventing the failure mode where the EKF position lands near a
+tile boundary and no tiles are returned.
+
+\subsubsection{First-Pass Search}
+
+\texttt{MetaTileBuilder.run()} calls \texttt{find\_tiles\_within\_radius()}
+to enumerate all tiles within $r_{search}$ of the EKF position, then runs
+SuperPoint+LightGlue on each. The result is a sorted list:
+
+\begin{equation}
+    \mathcal{T}_{1st} = \{(tx_k, ty_k, n_k)\}_{k=1}^{M}
+    \quad \text{sorted by } n_k \text{ (match count) descending}
+    \label{eq:first_pass}
+\end{equation}
+
+\subsubsection{Second-Pass: 8-Neighbour Expansion}
+
+The top-1 tile from the first pass is expanded to its 8-connected neighbours:
+
+\begin{equation}
+    \mathcal{T}_{2nd} = \{(tx^* + \Delta x,\; ty^* + \Delta y) :
+    (\Delta x, \Delta y) \in \{-1,0,1\}^2 \setminus \{(0,0)\}\}
+    \label{eq:second_pass}
+\end{equation}
+
+These 8 tiles are also matched against the query. This ensures that if the
+ground truth straddles a tile boundary, the correct tile is captured in the
+candidate set.
+
+\subsubsection{Meta-Tile Construction and Verification}
+
+The top-3 tiles by match count are stitched into a single reference image
+(the \emph{meta-tile}). The full query frame is then re-matched against this
+meta-tile in a \emph{verification match}. A meta-tile is flagged as
+\texttt{verified} if:
+
+\begin{equation}
+    n_{verify} \geq T_{match} = 25
+    \label{eq:verify_threshold}
+\end{equation}
+
+\paragraph{Why meta-tiles?}
+A single $512 \times 512$ tile covers $\approx 332 \times 332$ m. The drone's
+field of view at 1500 ft altitude is wider than one tile. By stitching 3 tiles,
+the reference image provides a $\approx 1000 \times 332$ m footprint, more
+match points, and a larger spatial baseline for the homography, reducing
+sensitivity to localised repetitive textures.
+
+\subsection{TMS Coordinate System}
+
+TMS (Tile Map Service) tiles use an inverted Y-axis compared to OSM:
+
+\begin{equation}
+    y_{TMS} = 2^z - 1 - y_{OSM}
+    \label{eq:tms_y}
+\end{equation}
+
+This inversion was the source of Bug~1 (see CLAUDE.md). All tile-coordinate
+functions in \texttt{tile\_utils.py} apply this conversion consistently.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 5 --- Feature Matching (SuperPoint + LightGlue)}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/geometric\_matcher.py}
+
+\subsection{SuperPoint Keypoint Detector and Descriptor}
+
+SuperPoint~\cite{detone2018} is a self-supervised CNN trained to detect and
+describe keypoints simultaneously. It outputs:
+
+\begin{itemize}
+    \item \textbf{Keypoint heatmap} $H \in [0,1]^{H/8 \times W/8}$:
+          probability of a keypoint at each cell
+    \item \textbf{Descriptor map} $D \in \R^{256 \times H \times W}$:
+          dense 256-dimensional descriptor at every pixel
+\end{itemize}
+
+Keypoints are extracted as local heatmap maxima above a confidence threshold,
+then non-maximum suppressed to at most \texttt{MAX\_NUM\_KEYPOINTS} $= 2048$.
+
+\paragraph{Why SuperPoint over SIFT/ORB?}
+Traditional detectors (SIFT, ORB) rely on handcrafted gradient histograms that
+are sensitive to the large illumination and style gap between MSFS 3D rendering
+and orthophoto satellite imagery. SuperPoint's learned descriptors generalise
+better to this domain shift because they were trained on a diverse augmentation
+pipeline including simulated homographic warps and photometric noise.
+
+\subsection{LightGlue Matcher}
+
+LightGlue~\cite{lindenberger2023} is a transformer-based matcher that computes
+attention-weighted feature correspondences end-to-end. Given two sets of
+SuperPoint keypoints and descriptors, it outputs:
+
+\begin{itemize}
+    \item \texttt{matches}: $K \times 2$ array of index pairs $(i, j)$
+    \item \texttt{matching\_scores}: $K$-vector of match confidence values
+\end{itemize}
+
+Unlike descriptor-distance matchers (nearest-neighbour + ratio test),
+LightGlue uses cross-attention to reason globally about the geometric
+consistency of the match set. This makes it significantly more robust
+under partial overlap and appearance change.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 6 --- Homography and GPS Estimation}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/visual\_measurement.py}
+
+\subsection{Dual Homography Estimation}
+
+Two independent RANSAC-based homography estimates are computed on the same
+match set:
+
+\paragraph{MAGSAC++~\cite{barath2020}.}
+A probabilistic RANSAC variant that weights each sample by its probability of
+being an inlier under the model, avoiding a hard inlier threshold. Tends to be
+more accurate when inlier ratios are moderate ($30$--$70\%$).
+
+\paragraph{LMEDS.}
+Least-Median-of-Squares estimator. Minimises the median squared reprojection
+error. Computationally faster, but sensitive to high outlier ratios ($> 50\%$).
+
+The homography $H$ maps query-frame pixel coordinates to reference-tile pixel
+coordinates:
+
+\begin{equation}
+    \begin{bmatrix}u_r \\ v_r \\ 1\end{bmatrix} \sim
+    H \begin{bmatrix}u_q \\ v_q \\ 1\end{bmatrix}
+    \label{eq:homography}
+\end{equation}
+
+\subsection{CShape Quality Score}
+
+The \emph{CShape} score measures how well the homography maps the query image
+corners to a valid convex quadrilateral in the reference:
+
+\begin{equation}
+    \text{CShape} =
+    \frac{\text{area}\!\left(\text{ConvexHull}(H\,\mathbf{c}_1, \ldots, H\,\mathbf{c}_4)\right)}
+    {\text{area}\!\left(\text{BoundingBox}(H\,\mathbf{c}_1, \ldots, H\,\mathbf{c}_4)\right)}
+    \label{eq:cshape}
+\end{equation}
+
+where $\mathbf{c}_1,\ldots,\mathbf{c}_4$ are the four query-frame corners.
+A perfect planar homography maps a rectangle to a convex quadrilateral
+($\text{CShape} = 1$). A degenerate or folded homography produces a
+non-convex result ($\text{CShape} < 0.3$), which is rejected by the quality
+gate.
+
+The winner between MAGSAC++ and LMEDS is selected as:
+
+\begin{equation}
+    k^* = \arg\max_{k \in \{\text{MAGSAC, LMEDS}\}}
+    \left( \text{CShape}_k \times n_{inliers,k} \right)
+\end{equation}
+
+\subsection{Visual Measurement Cascade}
+
+Five methods extract a GPS position from the winning homography $H$:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}rll@{}}
+\toprule
+\textbf{Priority} & \textbf{Method} & \textbf{Description} \\
+\midrule
+1 & \texttt{nadir\_corrected} & Project nadir point corrected for pitch and roll \\
+2 & \texttt{trimmed\_centroid} & Centroid of inliers after 10\% trimming \\
+3 & \texttt{inlier\_centroid} & Mean of all inlier reference positions \\
+4 & \texttt{weighted\_centroid} & Inliers weighted by match confidence score \\
+5 & \texttt{projected\_center} & Map frame centre through $H$ \\
+\bottomrule
+\end{tabular}
+\caption{Visual measurement cascade --- first valid result is used.}
+\end{table}
+
+\paragraph{Nadir-corrected projection.}
+The drone's camera has a fixed forward tilt. Pitch $\theta$ and roll $\phi$
+displace the ground-point directly below the drone from the image centre.
+The nadir pixel in the query frame is:
+
+\begin{equation}
+    \mathbf{p}_{nadir} =
+    \begin{bmatrix} c_x - f\tan\phi \\ c_y + f\tan\theta \end{bmatrix}
+    \label{eq:nadir}
+\end{equation}
+
+Applying $H$ to $\mathbf{p}_{nadir}$ gives the reference-tile pixel
+corresponding to the true ground position below the drone.
+
+\subsection{Tile Pixel to GPS Conversion}
+
+Given reference-tile pixel $(u_r, v_r)$ in a tile $(tx, ty)$ at TMS zoom
+$z$, the GPS coordinates are:
+
+\begin{align}
+    \lambda &= \lambda_{SW}(tx,ty,z) + \frac{u_r}{512}\,\Delta\lambda_{tile}
+    \label{eq:pix2lon} \\
+    \varphi &= \varphi_{NE}(tx,ty,z) - \frac{v_r}{512}\,\Delta\varphi_{tile}
+    \label{eq:pix2lat}
+\end{align}
+
+The sign convention on $v_r$ reflects the TMS Y-down screen coordinate system
+($v_r = 0$ is the tile's north edge).
+
+\subsection{Camera Look-Ahead Correction}
+
+Empirical diagnostic analysis revealed that all homography positions were
+systematically $L = 110$ m \emph{ahead} of the drone's true position in the
+heading direction. The MSFS virtual camera has a fixed forward tilt, so the
+image centre corresponds to ground ahead of the drone rather than directly
+below it (the nadir correction alone is insufficient because the tilt is
+baked into the camera model, not exposed as a pitch angle).
+
+The correction shifts the position backward along the heading direction:
+
+\begin{align}
+    L_{eff} &= L \cdot \cos\phi
+    \label{eq:lookahead_eff} \\
+    \Delta N &= -L_{eff}\cos\psi, \quad \Delta E = -L_{eff}\sin\psi
+    \label{eq:lookahead_ned} \\
+    \varphi_{corr} &= \varphi_{homo} + \frac{\Delta N}{111320}
+    \label{eq:lookahead_lat} \\
+    \lambda_{corr} &= \lambda_{homo} + \frac{\Delta E}{111320\cos\varphi_{homo}}
+    \label{eq:lookahead_lon}
+\end{align}
+
+The $\cos\phi$ factor (bank angle) reduces the effective look-ahead during
+banked turns because the camera's forward projection component decreases as
+the aircraft rolls. This correction reduced mean position error from 103.5 m
+to 9.7 m (91\% improvement).
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 7 --- Semantic Double-Confirmation}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/semantic\_confirmer.py}
+
+The semantic confirmer provides an independent verification of the tile match
+that is completely decoupled from feature matching. For each semantic class $c$
+that appears significantly in both the query mask and the reference tile
+prediction mask, the spatial centroids are computed and compared:
+
+\begin{equation}
+    d_c = \norm{\bar{\mathbf{p}}^{(q)}_c - \bar{\mathbf{p}}^{(r)}_c}_2
+    \label{eq:centroid_dist}
+\end{equation}
+
+A class pair is declared aligned if $d_c < 50$ px. The confirmation confidence
+is the aligned fraction:
+
+\begin{equation}
+    c_{sem} =
+    \frac{\left|\left\{c : d_c < 50 \text{ px}\right\}\right|}
+    {|\text{significant classes}|}
+    \label{eq:sem_conf}
+\end{equation}
+
+\paragraph{Purpose.}
+A high CShape + high inlier count can still arise from a \emph{wrong} tile if
+the scene contains repetitive patterns (e.g.\ a regular grid of buildings).
+The semantic confirmation catches this case: even if feature matching is
+geometrically consistent, the terrain class layout provides an independent
+spatial vote.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Phase 8 --- Adaptive Measurement Noise and Final Estimate}
+% ═══════════════════════════════════════════════════════════════════════════
+\label{sec:adaptive_R}
+
+\noindent\textbf{Primary file:} \texttt{runtime/run\_pipeline.py:376--390}
+
+The measurement noise variance $r_k$ is computed adaptively from four
+independent quality signals:
+
+\begin{equation}
+    r_k = r_{base} \cdot m_{bank} \cdot m_{verify} \cdot m_{sem}
+    \label{eq:adaptive_R}
+\end{equation}
+
+where:
+
+\begin{align}
+    r_{base} &=
+    \begin{cases}
+        30^2 = 900 \text{ m}^2 & \text{CS} > 0.5 \text{ and } n_{inl} > 100 \\
+        60^2 = 3600 \text{ m}^2 & \text{otherwise} \\
+        100^2 = 10000 \text{ m}^2 & \text{cold start}
+    \end{cases} \\[6pt]
+    m_{bank} &=
+    \begin{cases}
+        2.0 & |\phi| > 0.35 \text{ rad} \; (\approx 20^\circ) \\
+        1.0 & \text{otherwise}
+    \end{cases} \\[6pt]
+    m_{verify} &=
+    \begin{cases}
+        2.0 & \text{meta-tile not verified} \\
+        1.0 & \text{meta-tile verified}
+    \end{cases} \\[6pt]
+    m_{sem} &= \max(0.5,\; 2.0 - 1.5\,c_{sem})
+\end{align}
+
+The semantic factor $m_{sem}$ decreases $r_k$ (increases EKF trust) as
+$c_{sem}$ approaches 1.0, and increases $r_k$ (decreases trust) when
+$c_{sem}$ is low:
+
+\begin{equation}
+    c_{sem} = 1.0 \;\Rightarrow\; m_{sem} = 0.5 \quad \text{(half noise)}
+    \qquad
+    c_{sem} = 0.0 \;\Rightarrow\; m_{sem} = 2.0 \quad \text{(double noise)}
+\end{equation}
+
+\subsection{Quality Gate}
+
+A frame triggers an EKF update only if all three conditions are met:
+
+\begin{equation}
+    \text{gate\_pass} = \mathbf{1}\!\left[
+        \text{CShape} > 0.3 \;\wedge\;
+        n_{inliers} > 20 \;\wedge\;
+        \text{homo\_position} \neq \emptyset
+    \right]
+    \label{eq:quality_gate}
+\end{equation}
+
+Frames that fail the gate cause the EKF to coast on IMU dead reckoning, growing
+$\sigma_{pos}$ until the next successful gate pass.
+
+\subsection{Final State Extraction}
+
+The final GPS estimate is extracted from the EKF:
+
+\begin{align}
+    \varphi_{final} &= \varphi_0 + \frac{p_n}{R_E}
+    \label{eq:final_lat} \\
+    \lambda_{final} &= \lambda_0 + \frac{p_e}{R_E\cos\varphi_0}
+    \label{eq:final_lon} \\
+    \sigma_{pos} &= \sqrt{\max(P[8,8],\, P[9,9])}
+    \label{eq:sigma_pos}
+\end{align}
+
+The $\sigma_{pos}$ value is the EKF's self-assessed 1-sigma position
+uncertainty in metres. In steady-state operation it oscillates between
+$\approx 10$ m (just after a high-quality gate pass) and $\approx 60$ m
+(several seconds of dead reckoning at $\sigma_p = 5$ m/$\sqrt{\text{s}}$).
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Particle Filter Update and Resample}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{src/particle\_filter.py}
+
+The particle filter is used \emph{solely} to determine the search region for
+the next frame. The EKF is the authoritative position estimator.
+
+\subsection{Weight Update}
+
+Each particle weight is multiplied by the likelihood of the observed tile
+match position:
+
+\begin{equation}
+    w_i^+ \propto w_i \cdot
+    \exp\!\left(-\frac{\norm{\bx_i - \bx_{meas}}^2}{2\sigma_m^2}\right)
+    \label{eq:pf_update}
+\end{equation}
+
+where $\sigma_m = \texttt{MEASUREMENT\_NOISE\_POSITION\_M} = 500$ m. The large
+measurement noise reflects that domain shift makes tile matches unreliable;
+the EKF (with its adaptive $R$) is trusted for position, while the particle
+filter only provides a coarse search window.
+
+\subsection{Effective Sample Size and Resampling}
+
+The effective sample size:
+
+\begin{equation}
+    N_{eff} = \frac{1}{\sum_i w_i^2}
+    \label{eq:neff}
+\end{equation}
+
+When $N_{eff} < \texttt{RESAMPLE\_THRESHOLD} \times N = 0.5 \times 100 = 50$,
+systematic resampling is triggered to prevent weight degeneracy. Particle
+spread $\sigma_{PF}$ is computed as the standard deviation of particle
+positions in metres, reported per frame for diagnostics.
+
+\subsection{Divergence Detection}
+
+If the particle spread exceeds $\texttt{DIVERGENCE\_POSITION\_THRESHOLD} = 500$ m
+or the maximum particle weight falls below $\texttt{DIVERGENCE\_WEIGHT\_THRESHOLD} = 0.01$,
+divergence is flagged. On the next call to \texttt{process\_frame},
+\texttt{frame\_count} is reset to~0, triggering a cold-start BFS reinitialisation.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Output Files and Data Flags}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\noindent\textbf{Primary file:} \texttt{config/config.py}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Flag} & \textbf{Default} & \textbf{Output} \\
+\midrule
+\texttt{SAVE\_QUERY\_FRAMES} & False & \texttt{flight\_data/frame\_NNNN.jpg} \\
+\texttt{SAVE\_IMU\_ROWS} & False & \texttt{flight\_data/frame\_NNNN\_imu.json} \\
+\texttt{SAVE\_ANALYSIS\_DATA} & False & \texttt{px4\_gps\_input.csv}, \texttt{analysis\_extras.csv} \\
+\texttt{SAVE\_TIMING\_DATA} & False & \texttt{timing\_data.csv} \\
+\texttt{SAVE\_PIPELINE\_TRACE} & True & \texttt{pipeline\_data/frame\_NNNN/} (7 files) \\
+\bottomrule
+\end{tabular}
+\caption{Config flags controlling per-frame data capture.}
+\end{table}
+
+\paragraph{PX4 GPS\_INPUT (MAVLink MSG~232).}
+When \texttt{SAVE\_ANALYSIS\_DATA = True}, the pipeline writes a
+\texttt{px4\_gps\_input.csv} compatible with PX4's GPS\_INPUT MAVLink
+message~(ID~232). Key field mappings:
+
+\begin{equation*}
+    \texttt{lat} = \lfloor\varphi_{final} \times 10^7\rfloor,\quad
+    \texttt{lon} = \lfloor\lambda_{final} \times 10^7\rfloor,\quad
+    \texttt{yaw} = \lfloor\psi \times 100\rfloor
+\end{equation*}
+
+Fields \texttt{hdop} and \texttt{vdop} are set to~0 and masked via
+\texttt{ignore\_flags = 0x0006} (bit~1 = ignore hdop, bit~2 = ignore vdop).
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Experimental Results}
+% ═══════════════════════════════════════════════════════════════════════════
+
+Results on run \texttt{live\_015\_cph\_1500ft} (63 frames, CPH reference map,
+1500 ft altitude):
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+\textbf{Method} & $n$ & \textbf{Mean} & \textbf{Med.} & \textbf{Std.} & \textbf{Max}
+    & $<$50\,m & $<$100\,m \\
+\midrule
+Online EKF (visual+IMU) & 63 & 35.2\,m & 32.9\,m & 22.8\,m & 87\,m & 71.4\% & 100\% \\
+Homo raw (uncorrected) & 63 & 167.7\,m & 116.3\,m & 120.3\,m & 622\,m & 0.0\% & 20.6\% \\
+Homo corrected (+110\,m) & 63 & 86.4\,m & 20.8\,m & 138.9\,m & 701\,m & 69.8\% & 73.0\% \\
+\bottomrule
+\end{tabular}
+\caption{Multi-method accuracy comparison. The online EKF combines the
+look-ahead-corrected homography with IMU dead reckoning via the 10D
+error-state filter, achieving the best mean and worst-case error.}
+\end{table}
+
+Gate pass rate: 57/63 (90\%). Method distribution: 1 cold start, 62 temporal
+tracking. All 63 frames were within the reference map.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Known Limitations and Future Work}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{enumerate}
+    \item \textbf{Camera look-ahead constant.}
+        $L = 110$ m is empirically calibrated for this specific camera model
+        and altitude. A proper camera calibration (intrinsics + extrinsics)
+        would make it altitude- and tilt-independent.
+
+    \item \textbf{Domain shift.}
+        MSFS renders 3D geometry with dynamic lighting, while reference tiles
+        are flat 2D orthophotos. SuperPoint descriptors generalise, but
+        CShape degrades near terrain transitions (forest edges, coastlines).
+
+    \item \textbf{Speed.}
+        2.8\,s/frame ($\approx 0.36$ Hz) vs.\ a typical camera rate of 30 Hz.
+        Bottleneck: SuperPoint inference on the rotated frame + LightGlue.
+        Potential improvement: cache the query SuperPoint features across all
+        tile matches in one pass (currently re-run per tile pair).
+
+    \item \textbf{Repeated-structure ambiguity.}
+        Dense urban grids can produce geometrically consistent but positionally
+        wrong homographies. Semantic confirmation mitigates this but does not
+        fully eliminate it.
+
+    \item \textbf{Out-of-map handling.}
+        When the drone exits the reference tile map, the cold-start BFS finds
+        0 tiles and the system falls back to IMU dead reckoning indefinitely.
+        A map-extent check on the EKF position would give earlier warning.
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════════════════
+\begin{thebibliography}{9}
+
+\bibitem{kok2017}
+M.~Kok, J.~D.~Hol, and T.~B.~Sch\"{o}n,
+``Using Inertial Sensors for Position and Orientation Estimation,''
+\textit{Foundations and Trends in Signal Processing}, vol.~11, no.~1--2,
+pp.~1--153, 2017.
+
+\bibitem{detone2018}
+D.~DeTone, T.~Malisiewicz, and A.~Rabinovich,
+``SuperPoint: Self-Supervised Interest Point Detection and Description,''
+in \textit{Proc. CVPR Workshops}, 2018.
+
+\bibitem{lindenberger2023}
+P.~Lindenberger, P.-E.~Sarlin, and M.~Pollefeys,
+``LightGlue: Local Feature Matching at Light Speed,''
+in \textit{Proc. ICCV}, 2023.
+
+\bibitem{barath2020}
+D.~Barath, J.~Noskova, M.~Ivashechkin, and J.~Matas,
+``MAGSAC++, a Fast, Reliable and Accurate Robust Estimator,''
+in \textit{Proc. CVPR}, 2020.
+
+\end{thebibliography}
+
+\end{document}

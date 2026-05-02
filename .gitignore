@@ -27,6 +27,7 @@
 # ============================================================
 # IMAGES AND REFERENCE TILES (keep reference map on disk)
 # ============================================================
+ALL_IN_ONE_PIPELINE_THESIS-main/
 REFERENCE_MAP_VEJLE_20260321_162024/
 Pipeline_3_Rev1/outputs
 Pipeline_3_Rev1/outputs copy
@@ -36,6 +37,7 @@ REFERENCE MAP CROPPED/
 Logs_Run_*/
 outputs/metatiles/
 outputs/semantic/
+Pipeline_3_Rev1/docs/SDU_MSc_Thesis/
 *.png
 
 # ============================================================
@@ -96,3 +98,21 @@ __temp__/
 # ============================================================
 inference_results.json
 *_results.json
+SEMANTIC BEFORE/Test_Localization_Drone_Route.ipynb
+SEMANTIC BEFORE/Test_Localization_Drone_Route copy.ipynb
+SEMANTIC BEFORE/Semantic_Model_QGIS_8_Class_Rev6.ipynb
+SEMANTIC BEFORE/requirements.txt
+SEMANTIC BEFORE/requirements-localization.txt
+SEMANTIC BEFORE/requirements-gpu.txt
+SEMANTIC BEFORE/README.md
+SEMANTIC BEFORE/QUICKSTART_WEEK1-2.md
+SEMANTIC BEFORE/Model_Evaluation_Visualization.ipynb
+SEMANTIC BEFORE/LOCALIZATION_ROADMAP.md
+SEMANTIC BEFORE/Build_Reference_Database.ipynb
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/Semantic_Model_QGIS_8_Class_Rev6.ipynb
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/README.md
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/Model_Evaluation_Visualization_Diagnostic.ipynb
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/GPU-Z Sensor Log run_20260304_222309_20260405_231300.txt
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/BACKUP MODEL/per_class_iou.jsonl
+SEMANTIC BEFORE/1BEST_TRAINING_OUTCOME_20260304_222309/20260304_222309/per_class_iou.jsonl
+Pipeline_3_Rev1/docs/errors of main_tex.txt

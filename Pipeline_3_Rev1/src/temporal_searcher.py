@@ -100,6 +100,11 @@ class TemporalSearcher:
     def _process_frame_0(self, query_frame: np.ndarray,
                          imu_data: Dict, timestamp: float) -> Dict:
         t0 = time.perf_counter()
+        _save_timing = getattr(self.cfg, 'SAVE_TIMING_DATA', False)
+        _timing: Dict = {}
+        _save_trace = getattr(self.cfg, 'SAVE_PIPELINE_TRACE', False)
+        _trace_data: Dict = {}
+
         # ── Phase B1: rotate query by heading for better matching ──
         heading_deg = imu_data.get("heading", 0)
         rotation_angle = -heading_deg
@@ -111,17 +116,30 @@ class TemporalSearcher:
         # BestFirstSearcher exhaustive search on rotated query
         searcher = BestFirstSearcher(self.matcher, self.tiles, self.cfg,
                                      feature_store=self.feature_store)
+        _t = time.perf_counter()
         search_result = searcher.search(
             query_for_match, imu_data["lat"], imu_data["lon"])
+        if _save_timing:
+            _timing['cold_search_ms'] = (time.perf_counter() - _t) * 1000
 
         score = search_result["score"]
         position = search_result["position"]
         ranked_tiles = search_result.get("ranked_tiles", [])
 
+        if _save_trace:
+            _trace_data['rotation_deg'] = rotation_angle
+            _trace_data['ranked_tiles'] = ranked_tiles
+            _trace_data['query_rotated'] = query_for_match
+            _trace_data['match_result'] = search_result.get("match_result")
+            best_t = search_result.get("best_tile")
+            _trace_data['ref_img'] = (
+                self.tiles.load_aerial(best_t[0], best_t[1]) if best_t else None)
+
         # ── Phase B1: dual homography + visual measurements on best match ──
         homo_position = None
         visual_quality = {"CShape": 0, "inliers": 0, "convex": False}
 
+        _t_homo = time.perf_counter()
         if search_result.get("match_result") and score >= 4:
             mr = search_result["match_result"]
             matches = mr["matches"]
@@ -165,6 +183,9 @@ class TemporalSearcher:
                                 homo_position = mdata["latlon"]
                                 break
 
+        if _save_timing:
+            _timing['homography_ms'] = (time.perf_counter() - _t_homo) * 1000
+
         # ── Decide PF initialization position using quality gate ──
         cshape = visual_quality["CShape"]
         n_inliers = visual_quality["inliers"]
@@ -207,6 +228,7 @@ class TemporalSearcher:
         )
 
         # Branch A — semantic segmentation of query frame
+        _t = time.perf_counter()
         query_processed = preprocess_query_frame(
             query_frame,
             resize_w=self.cfg.QUERY_RESIZE_WIDTH,
@@ -214,8 +236,16 @@ class TemporalSearcher:
             target_size=self.cfg.SEMANTIC_INPUT_SIZE,
         )
         query_semantic_map = self.semantic_model.predict(query_processed)
+        if _save_timing:
+            _timing['semantic_ms'] = (time.perf_counter() - _t) * 1000
+
+        if _save_trace:
+            _trace_data['query_processed'] = query_processed
+            _trace_data['query_semantic_map'] = query_semantic_map
 
         elapsed = time.perf_counter() - t0
+        if _save_timing:
+            _timing['total_ms'] = elapsed * 1000
 
         return {
             "position": position,
@@ -237,6 +267,8 @@ class TemporalSearcher:
             "gate_pass": gate_pass,
             "homo_position": homo_position,
             "pf_position": (init_lat, init_lon),
+            "timing": _timing if _save_timing else None,
+            "trace_data": _trace_data if _save_trace else None,
         }
 
     # ════════════════════════════════════════════════════════════
@@ -247,10 +279,17 @@ class TemporalSearcher:
                          imu_data: Dict, timestamp: float) -> Dict:
         t0 = time.perf_counter()
         dt = timestamp - self.last_timestamp if self.last_timestamp else 0.5
+        _save_timing = getattr(self.cfg, 'SAVE_TIMING_DATA', False)
+        _timing: Dict = {}
+        _save_trace = getattr(self.cfg, 'SAVE_PIPELINE_TRACE', False)
+        _trace_data: Dict = {}
 
         # Step 1 — Predict particles with IMU
+        _t = time.perf_counter()
         self.particle_filter.predict(
             dt, imu_data["velocity_mps"], imu_data["gyro_z_dps"])
+        if _save_timing:
+            _timing['pf_predict_ms'] = (time.perf_counter() - _t) * 1000
 
         # Step 2 — Get search region.
         region = self.particle_filter.get_search_region()
@@ -267,6 +306,7 @@ class TemporalSearcher:
         query_for_match = self._resize_rotated(query_rotated)
 
         # Step 3b — Semantic segmentation (before tile search so pre-filter can use it)
+        _t = time.perf_counter()
         query_processed = preprocess_query_frame(
             query_frame,
             resize_w=self.cfg.QUERY_RESIZE_WIDTH,
@@ -274,7 +314,10 @@ class TemporalSearcher:
             target_size=self.cfg.SEMANTIC_INPUT_SIZE,
         )
         query_semantic_map = self.semantic_model.predict(query_processed)
+        if _save_timing:
+            _timing['semantic_ms'] = (time.perf_counter() - _t) * 1000
 
+        _t = time.perf_counter()
         meta_result = self.meta_tile_builder.run(
             query_frame=query_for_match,
             imu_lat=center_lat,
@@ -284,13 +327,38 @@ class TemporalSearcher:
             query_semantic_map=query_semantic_map,
         )
 
+        if _save_timing:
+            _timing['meta_tile_ms'] = (time.perf_counter() - _t) * 1000
+
+        # Populate trace data — common fields regardless of meta_result outcome
+        if _save_trace:
+            _trace_data['rotation_deg'] = rotation_angle
+            _trace_data['search_radius_m'] = search_radius_m
+            _trace_data['pf_center'] = (center_lat, center_lon)
+            _trace_data['query_rotated'] = query_for_match
+            _trace_data['query_processed'] = query_processed
+            _trace_data['query_semantic_map'] = query_semantic_map
+            if meta_result is not None:
+                _trace_data['first_pass_tiles'] = meta_result.get("first_pass_tiles", [])
+                _trace_data['second_pass_tiles'] = meta_result.get("second_pass_tiles", [])
+                _trace_data['meta_tile'] = meta_result["meta_tile"]
+                _trace_data['match_result'] = meta_result.get("match_result")
+
         # Handle failure: no tiles found
         if meta_result is None:
             unc = self.particle_filter.get_uncertainty()
             elapsed = time.perf_counter() - t0
-            return self._imu_fallback_result(
+            if _save_timing:
+                _timing.update({'homography_ms': 0.0, 'pf_update_ms': 0.0,
+                                 'total_ms': elapsed * 1000})
+            res = self._imu_fallback_result(
                 imu_data, timestamp, elapsed, unc,
                 reason="no_first_pass_tiles")
+            if _save_timing:
+                res['timing'] = _timing
+            if _save_trace:
+                res['trace_data'] = _trace_data
+            return res
 
         # Step 4 — Dual homography + visual measurement extraction
         homo_position = None
@@ -298,6 +366,7 @@ class TemporalSearcher:
         visual_quality = {"CShape": 0, "inliers": 0, "convex": False}
         qh_rot, qw_rot = query_for_match.shape[:2]
 
+        _t_homo = time.perf_counter()
         if meta_result.get("match_result"):
             mr = meta_result["match_result"]
             matches = mr["matches"]
@@ -340,6 +409,9 @@ class TemporalSearcher:
                                 self.cfg.TMS_ZOOM_LEVEL)
                             break
 
+        if _save_timing:
+            _timing['homography_ms'] = (time.perf_counter() - _t_homo) * 1000
+
         # Step 5 — Extract measurements for particle update
         # Prefer homography sub-tile position when available;
         # otherwise fall back to tile centers.
@@ -375,6 +447,7 @@ class TemporalSearcher:
         #  the online EKF in the notebook loop.  PF is for search region only.)
 
         # Step 6 — Update particle filter
+        _t = time.perf_counter()
         self.particle_filter.update(measurements)
         self.particle_filter.resample()
 
@@ -384,6 +457,8 @@ class TemporalSearcher:
         confirm_result = self.semantic_confirmer.confirm(
             query_semantic_map, meta_result["meta_tile"],
             prediction_meta_tile=meta_result.get("prediction_meta_tile"))
+        if _save_timing:
+            _timing['pf_update_ms'] = (time.perf_counter() - _t) * 1000
 
         # Step 8 — Get final estimate
         est_x, est_y, est_hdg = self.particle_filter.get_estimate()
@@ -411,6 +486,8 @@ class TemporalSearcher:
 
         unc = self.particle_filter.get_uncertainty()
         elapsed = time.perf_counter() - t0
+        if _save_timing:
+            _timing['total_ms'] = elapsed * 1000
 
         # Step 8 — Check divergence
         if self.particle_filter.check_divergence():
@@ -441,6 +518,8 @@ class TemporalSearcher:
                           and homo_position is not None),
             "homo_position": homo_position,
             "pf_position": pf_pos,
+            "timing": _timing if _save_timing else None,
+            "trace_data": _trace_data if _save_trace else None,
         }
 
     # ════════════════════════════════════════════════════════════
