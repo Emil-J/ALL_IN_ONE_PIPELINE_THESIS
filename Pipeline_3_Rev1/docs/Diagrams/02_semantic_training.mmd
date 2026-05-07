@@ -1,0 +1,61 @@
+%% Level 2 — Semantic Training (SemanticTerrainSegmentationModel/).
+%% Single Jupyter notebook containing all training cells; supporting
+%% artefacts shown explicitly.  Top = inputs, bottom = outputs.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        AER_F[("aerial_foraar/<br/>winter tiles")]
+        AER_S[("aerial_bing/<br/>summer tiles")]
+        MASK[("mask/16/{x}/{y}.png<br/>RGB ground-truth")]
+        IDX[("tile_index.csv<br/>winter/summer manifest")]
+        CFGJ[("config.json<br/>batch_size · seed · LR ·<br/>curriculum · patience")]
+        LEG[("legend.txt<br/>RGB to class index")]
+        WARM[("Phase-1 best.pth<br/>(optional warm start)")]
+    end
+
+    %% ── Notebook cell groups ──────────────────────────────────
+    subgraph NB["Semantic_Model_QGIS_8_Class_Rev6.ipynb"]
+        DATA["Cell 8 — SeasonCurriculumDataset<br/>encode_mask_rgb · curriculum<br/>see 21_st_data_pipeline"]
+        AUG["Cell 6 — Albumentations<br/>train + val transforms"]
+        DL["Cells 13–14 — DataLoader<br/>B=8 · num_workers=0"]
+        MOD["Cell 15 — UnetPlusPlus<br/>EfficientNet-B3 + scSE<br/>see 22_st_model_architecture"]
+        FREEZE["Cell 17 — encoder freeze<br/>FREEZE_ENCODER_EPOCHS=2"]
+        LOSS["Cell 18 — composite loss + AdamW + cosine LR<br/>see 23_st_loss_optimiser"]
+        TRAIN["Cell 19/24/25 — train_one_epoch_accum<br/>main epoch loop"]
+        VAL["Cell 19 — validate<br/>combined / winter / summer"]
+        CKPT["Cell 22 — checkpoint manager<br/>see 24_st_training_validation"]
+    end
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        BEST[("best.pth<br/>UNet++ checkpoint")]
+        LATEST[("latest.pth<br/>resume-safe")]
+        SNAP[("epoch_NNNN.pth<br/>10-epoch snapshots")]
+        LOG[("train_log.csv +<br/>per_class_iou*.jsonl")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    AER_F -->|"winter tile"| DATA
+    AER_S -->|"summer tile"| DATA
+    MASK -->|"GT mask"| DATA
+    IDX -->|"manifest"| DATA
+    LEG -.->|"class palette"| DATA
+    CFGJ -.->|"hyperparameters"| TRAIN
+
+    DATA -->|"sample (img, mask)"| AUG
+    AUG -->|"augmented tensor"| DL
+    DL -->|"batch (B,3,512,512) + (B,512,512)"| TRAIN
+
+    WARM -->|"load_state_dict"| MOD
+    MOD -->|"logits (B,6,512,512)"| LOSS
+    FREEZE -.->|"requires_grad"| MOD
+    LOSS -->|"backward + step"| TRAIN
+
+    TRAIN -->|"end of epoch"| VAL
+    VAL -->|"macro IoU · per-class IoU"| CKPT
+
+    CKPT -->|"every epoch"| LATEST
+    CKPT -->|"summer IoU improved"| BEST
+    CKPT -->|"every 10 epochs"| SNAP
+    CKPT -->|"metrics"| LOG

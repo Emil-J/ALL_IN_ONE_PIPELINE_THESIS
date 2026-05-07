@@ -1,0 +1,42 @@
+%% Level 3 — EKF state estimation per IMU row (src/ekf_ins.py).
+%% State: 10D error state [d_theta(3), d_b_g(3), d_w_NE(2), d_p_NE(2)]
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        ROW_IN(["imu row dict<br/>accel · gyro · pitch · bank<br/>mag · baro · airspeed"])
+        VPOS_IN(["visual position fix<br/>(lat, lon, R)<br/>from fusion stage 36"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    GUARD{"new timestamp?<br/>(prevents repeated step on same row)"}
+
+    PRED["predict<br/>quaternion kinematics<br/>F · P · F transpose + Q dt"]
+    UA["update_accel_mag<br/>roll/pitch from gravity<br/>yaw from magnetometer"]
+    UB["update_barometer<br/>pos_d, vel_d from baro"]
+    UAS["update_airspeed<br/>wind state + position integration"]
+
+    POS_UPD["update_position(lat, lon, R)<br/>Kalman update on d_p_NE"]
+
+    P_BLOCK["covariance P (10x10)"]
+    STATE["get_state()<br/>geodetic + Euler + NED velocity"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT_STATE(["state dict<br/>lat · lon · alt · roll · pitch · yaw · vel_NED"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    ROW_IN --> GUARD
+    GUARD -->|"yes"| PRED
+    PRED --> UA
+    UA --> UB
+    UB --> UAS
+    UAS --> P_BLOCK
+
+    VPOS_IN --> POS_UPD
+    POS_UPD --> P_BLOCK
+
+    GUARD -->|"no (skip step)"| STATE
+    P_BLOCK --> STATE
+    STATE --> OUT_STATE

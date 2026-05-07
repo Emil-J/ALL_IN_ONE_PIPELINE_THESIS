@@ -1,0 +1,34 @@
+%% Level 3 — Semantic Training data pipeline.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        IDX_IN[("tile_index.csv")]
+        WIN_IN[("aerial_foraar/<br/>winter tiles")]
+        SUM_IN[("aerial_bing/<br/>summer tiles")]
+        MASK_IN[("mask/16/{x}/{y}.png")]
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    DS["SeasonCurriculumDataset<br/>winter / summer per-sample draw"]
+    EM["encode_mask_rgb<br/>RGB to class index 0..5"]
+    CURR["curriculum schedule<br/>winter_prob: 80 to 50 to 20 to 10 percent"]
+    AUG["Albumentations<br/>rot90 · flips · Affine · brightness · normalize"]
+    DL["DataLoader<br/>B=8 · num_workers=0 · pin_memory"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        BATCH_OUT(["batch tensor<br/>(B, 3, 512, 512) +<br/>(B, 512, 512) targets"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IDX_IN -->|"manifest"| DS
+    WIN_IN -->|"winter tile"| DS
+    SUM_IN -->|"summer tile"| DS
+    MASK_IN -->|"RGB mask"| EM
+    EM -->|"class indices"| DS
+    CURR -.->|"set_winter_prob each epoch"| DS
+
+    DS -->|"sample (img, mask)"| AUG
+    AUG -->|"augmented tensor"| DL
+    DL --> BATCH_OUT

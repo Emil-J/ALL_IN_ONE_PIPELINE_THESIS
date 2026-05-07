@@ -1,0 +1,37 @@
+%% Level 3 — Semantic Training loss + optimiser + scheduler.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        LG_IN(["logits (B, 6, 512, 512)"])
+        GT_IN(["class indices (B, 512, 512)"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    F["focal_weighted (gamma=2)<br/>per-pixel weights<br/>rail x2 · road x5"]
+    D["dice<br/>(multiclass · from logits)"]
+    T["tversky (alpha=0.3, beta=0.7)"]
+    SUM["composite loss<br/>0.4 F + 0.3 D + 0.3 T"]
+    OPT["AdamW<br/>encoder lr 1e-4 · decoder lr 5e-4<br/>weight_decay 1e-4 · clip 1.0"]
+    SCH["CosineAnnealingLR<br/>T_max=25 · eta_min=1e-6"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        BACK_OUT(["scaled gradient + step"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    LG_IN --> F
+    LG_IN --> D
+    LG_IN --> T
+    GT_IN --> F
+    GT_IN --> D
+    GT_IN --> T
+
+    F -->|"focal scalar"| SUM
+    D -->|"dice scalar"| SUM
+    T -->|"tversky scalar"| SUM
+
+    SUM -->|"composite loss"| BACK_OUT
+    OPT -->|"step()"| BACK_OUT
+    SCH -.->|"lr per epoch"| OPT

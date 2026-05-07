@@ -1,0 +1,33 @@
+%% Level 3 — Semantic prediction tiles (Dataset_Preprocessing/semantic_preprocessor.py).
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        AER_IN[("aerial/16/{x}/{y}.png<br/>512x512 RGB")]
+        BPTH_IN[("best.pth<br/>UNet++ checkpoint")]
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    DISC["_discover_tiles<br/>walk TMS tree"]
+    LOAD["load + ImageNet normalise<br/>(1, 3, 512, 512) tensor"]
+    FWD["model.forward + argmax<br/>(512, 512) class indices"]
+    ENC["_decode_segmap<br/>class index to RGB via COLOR_MAP"]
+    SAVE["PIL save<br/>(skip-if-exists unless --force)"]
+    STAT["per-class pixel stats"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        PRED_OUT[("prediction/16/{x}/{y}.png<br/>RGB-encoded class mask")]
+        STATS_OUT[("class_pixel_counts<br/>(printed by CLI)")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    AER_IN -->|"PNG path"| DISC
+    DISC -->|"tile (tx, ty)"| LOAD
+    BPTH_IN -.->|"weights"| FWD
+    LOAD -->|"normalised tensor"| FWD
+    FWD -->|"(512, 512) uint8"| ENC
+    ENC -->|"(512, 512, 3) RGB"| SAVE
+    SAVE -->|"PNG file"| PRED_OUT
+    FWD -->|"class counts"| STAT
+    STAT -->|"aggregated"| STATS_OUT

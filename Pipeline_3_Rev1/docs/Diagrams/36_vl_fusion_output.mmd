@@ -1,0 +1,52 @@
+%% Level 3 — Quality gate, look-ahead correction, adaptive R, EKF fusion, output.
+%% Files: runtime/run_pipeline.py (_process_one_frame) · src/ekf_ins.py (update_position).
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        HOMO_IN(["homo_position<br/>(from stage 34)"])
+        QUAL_IN(["CShape · inliers<br/>(from stage 34)"])
+        SEMC_IN(["semantic_confidence<br/>(from stage 35)"])
+        EKF_IN(["EKF heading + bank"])
+        META_V_IN(["meta_tile_verified flag"])
+        METHOD_IN(["method = cold_start / temporal"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    GATE{"gate_pass<br/>CShape > 0.3 AND<br/>inliers > 20 AND<br/>homo_position valid"}
+
+    LA["look-ahead correction<br/>shift -110 cos(bank) m<br/>along EKF heading"]
+
+    AR["adaptive measurement noise R<br/>R_HIGH=30 squared · R_MED=60 squared · R_COLD=100 squared<br/>x2 if bank > 20 deg<br/>x2 if not meta-verified<br/>x max(0.5, 2 - 1.5 sem_conf)"]
+
+    EKF_UPD["ekf.update_position(lat, lon, R)<br/>Kalman update on d_p_NE"]
+
+    GET["ekf.get_state"]
+    SIGMA["pos_sigma<br/>= sqrt max(P[8,8], P[9,9])"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        CSV_OUT[("results.csv<br/>(29 columns · per-frame state)")]
+        PX4_OUT[("px4_gps_input.csv<br/>MAVLink GPS_INPUT msg 232")]
+        EXTRA_OUT[("analysis_extras.csv<br/>n_eff · spread · homo_offset")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    HOMO_IN --> GATE
+    QUAL_IN --> GATE
+
+    GATE -->|"pass"| LA
+    EKF_IN --> LA
+    LA -->|"corrected lat / lon"| AR
+    SEMC_IN --> AR
+    META_V_IN --> AR
+    METHOD_IN --> AR
+
+    AR -->|"R · corrected (lat, lon)"| EKF_UPD
+    EKF_UPD --> GET
+    GATE -->|"fail · skip update"| GET
+    GET --> SIGMA
+
+    GET --> CSV_OUT
+    GET --> PX4_OUT
+    GET --> EXTRA_OUT

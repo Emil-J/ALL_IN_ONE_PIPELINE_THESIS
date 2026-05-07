@@ -1,0 +1,43 @@
+%% Level 3 — SuperPoint extraction + HDF5 store
+%%   (Dataset_Preprocessing/superpoint_preprocessor.py · feature_store.py).
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        AER_IN[("aerial/16/{x}/{y}.png<br/>512x512 RGB")]
+        EXT_IN(["lightglue.SuperPoint<br/>max_num_keypoints=2048"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    DISC["_discover_tiles<br/>walk TMS tree"]
+    GREY["RGB to grayscale [0, 1]<br/>tensor (1, 1, 512, 512)"]
+    EXT["extractor.extract<br/>kpts (N, 2) · desc (N, 256) · scores (N,)"]
+
+    FW["FeatureStoreWriter<br/>open · write_tile · close"]
+    META["metadata/<br/>extractor · zoom · dtype · time"]
+    TILES["tiles/{tx}_{ty}/<br/>kpts · desc · scores + size attrs"]
+    INDEX["index/<br/>tile_x · tile_y · num_keypoints"]
+    VAL["validate_feature_store<br/>shape + dtype probe"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        H5_OUT[("reference_features.h5<br/>HDF5 feature store")]
+        VAL_OUT[("validation report<br/>(printed by CLI)")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    AER_IN -->|"PNG path"| DISC
+    DISC -->|"tile (tx, ty)"| GREY
+    GREY -->|"grayscale tensor"| EXT
+    EXT_IN -.->|"extractor instance"| EXT
+    EXT -->|"per-tile arrays"| FW
+
+    FW --> META
+    FW --> TILES
+    FW --> INDEX
+
+    META --> H5_OUT
+    TILES --> H5_OUT
+    INDEX --> H5_OUT
+    H5_OUT --> VAL
+    VAL --> VAL_OUT

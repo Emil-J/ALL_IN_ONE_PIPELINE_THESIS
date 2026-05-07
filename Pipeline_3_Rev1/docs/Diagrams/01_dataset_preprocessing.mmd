@@ -1,0 +1,46 @@
+%% Level 2 — Dataset Preprocessing (Dataset_Preprocessing/).
+%% Every Python file is a separate node.  Top = inputs, bottom = outputs.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        QGIS(["QGIS workflow<br/>(external · manual)<br/>see 11_dp_qgis_workflow"])
+        BPTH_IN(["best.pth<br/>(from Semantic Training)"])
+    end
+
+    %% ── Code ──────────────────────────────────────────────────
+    subgraph CODE["Dataset_Preprocessing/"]
+        CFG["config.py<br/>paths · zoom · max_keypoints<br/>COLOR_MAP · DEVICE"]
+        CLI["preprocess_reference.py<br/>CLI driver<br/>run_semantic / run_superpoint"]
+        SP["semantic_preprocessor.py<br/>run_semantic_preprocessing<br/>see 12_dp_semantic_prediction"]
+        SUP["superpoint_preprocessor.py<br/>run_superpoint_preprocessing<br/>see 13_dp_superpoint_extraction"]
+        FS["feature_store.py<br/>FeatureStoreWriter<br/>FeatureStoreLoader · validate"]
+    end
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs (consumed by Pipeline_3_Rev1 runtime)"]
+        AER_OUT[("aerial/16/{x}/{y}.png<br/>(passthrough)")]
+        PRED_OUT[("prediction/16/{x}/{y}.png<br/>RGB-encoded class masks")]
+        H5_OUT[("reference_features.h5<br/>HDF5 feature store")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    QGIS -->|"aerial tiles"| AER_OUT
+
+    CFG -.->|"parameters"| CLI
+    CFG -.->|"parameters"| SP
+    CFG -.->|"parameters"| SUP
+    CFG -.->|"HDF5 schema"| FS
+
+    CLI -->|"--semantic / --all"| SP
+    CLI -->|"--superpoint / --all"| SUP
+
+    AER_OUT -->|"512x512 RGB"| SP
+    AER_OUT -->|"512x512 RGB"| SUP
+
+    BPTH_IN -->|"weights"| SP
+
+    SP -->|"class mask PNG"| PRED_OUT
+
+    SUP -->|"kpts · desc · scores"| FS
+    FS -->|"per-tile groups + index"| H5_OUT

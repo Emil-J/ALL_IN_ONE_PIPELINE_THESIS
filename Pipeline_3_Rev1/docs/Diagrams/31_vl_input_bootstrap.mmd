@@ -1,0 +1,49 @@
+%% Level 3 — Input layer + EKF bootstrap (incl. initial GPS prior).
+%% Files: runtime/run_pipeline.py (_init_ekf, run_simconnect_mode bootstrap)
+%%        runtime/simconnect_adapter.py (FileSource, SimConnectLiveSource)
+%%        src/wmm_declination.py (get_mag_field)
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs (one-shot at startup)"]
+        IMU_CSV[("IMU CSV<br/>(file mode)")]
+        FRAMES_DIR[("frames directory<br/>(file mode)")]
+        SIMCONN(["MSFS / SimConnect<br/>(live mode)"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    FILE["FileSource<br/>iter_aligned()<br/>recorded IMU CSV + JPEG dir"]
+    LIVE["SimConnectLiveSource<br/>50 Hz daemon thread<br/>get_latest_row · get_latest_frame"]
+
+    GPS0["Initial GPS prior<br/>file mode: raw_df.iloc[0]<br/>live mode: first valid SimConnect sample"]
+
+    INIT["_init_ekf<br/>reads lat0 · lon0 · alt0 · heading0 · airspeed0"]
+    BARO["barometric_altitude<br/>pressure_mbar to alt0"]
+    WMM["wmm_declination.get_mag_field<br/>(lat0, lon0, alt0) to dec, inc"]
+    EKF_NEW["ErrorStateEKF<br/>seed P[8:10, 8:10] = 200m squared"]
+    WARM["warm-up loop<br/>step_ekf for rows 0..start_row"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT_EKF(["live ErrorStateEKF instance<br/>ready for per-frame loop"])
+        OUT_STREAM(["aligned stream<br/>(query_frame, imu_row, ts)"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IMU_CSV -->|"raw_df"| FILE
+    FRAMES_DIR -->|"JPEGs"| FILE
+    SIMCONN -->|"poll loop"| LIVE
+
+    FILE -->|"row 0"| GPS0
+    LIVE -->|"first valid sample"| GPS0
+    GPS0 --> INIT
+    INIT -->|"pressure_mbar"| BARO
+    BARO -->|"alt0"| EKF_NEW
+    INIT -->|"lat0 / lon0 / alt0"| WMM
+    WMM -->|"dec · inc"| EKF_NEW
+    INIT -->|"lat0 · lon0 · heading0 · airspeed0"| EKF_NEW
+    EKF_NEW --> WARM
+    WARM --> OUT_EKF
+
+    FILE --> OUT_STREAM
+    LIVE --> OUT_STREAM

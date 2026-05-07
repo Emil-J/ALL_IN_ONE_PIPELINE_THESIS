@@ -1,0 +1,31 @@
+%% Level 3 — Semantic Training model architecture + freeze controller.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        IN_BATCH(["batch (B, 3, 512, 512)"])
+        WARM_IN[("Phase-1 winter best.pth<br/>(optional warm start)")]
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    ENC["encoder<br/>EfficientNet-B3<br/>(ImageNet weights)"]
+    DEC["UNet++ decoder<br/>nested skip connections"]
+    ATT["scSE attention<br/>(decoder)"]
+    HEAD["seg head<br/>1x1 conv to 6 channels"]
+    FREEZE["freeze controller<br/>encoder frozen for 2 epochs"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT_LOG(["logits (B, 6, 512, 512)"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IN_BATCH -->|"image tensor"| ENC
+    ENC -->|"feature pyramid"| DEC
+    DEC -->|"upsampled features"| ATT
+    ATT -->|"attended features"| HEAD
+    HEAD --> OUT_LOG
+
+    WARM_IN -.->|"load_state_dict"| ENC
+    WARM_IN -.->|"load_state_dict"| DEC
+    FREEZE -.->|"requires_grad"| ENC

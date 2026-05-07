@@ -1,0 +1,33 @@
+%% Level 3 — QGIS workflow (external · manual stage).
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        SRC(["Orthophoto / Bing source<br/>(Ortofoto DK, Bing Maps)"])
+        OSM(["OSM vector layers<br/>water · forest · roads · rail · buildings"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    Q1["QGIS<br/>load TMS raster source"]
+    Q2["QGIS<br/>load + style OSM layers"]
+    Q3["QGIS<br/>rasterise each layer<br/>(zoom 16 · 512x512)"]
+    Q4["QGIS<br/>composite to 6-class palette"]
+    Q5["QGIS<br/>export TMS pyramid"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        AER[("aerial/16/{x}/{y}.png")]
+        MSK[("mask/16/{x}/{y}.png")]
+        IDX[("tile_index.csv")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    SRC -->|"raster"| Q1
+    OSM -->|"vectors"| Q2
+    Q2 -->|"styled vectors"| Q3
+    Q3 -->|"per-class binaries"| Q4
+    Q1 -->|"aerial tiles"| Q5
+    Q4 -->|"6-class mask"| Q5
+    Q5 -->|"aerial PNGs"| AER
+    Q5 -->|"mask PNGs"| MSK
+    Q5 -->|"tile manifest"| IDX

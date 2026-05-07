@@ -1,0 +1,39 @@
+%% Level 1 — System overview.
+%% Three subsystems with explicit Input → Subsystem → Output flow.
+%% Every subsystem block points to its Level-2 expansion.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        QGIS(["QGIS workflow<br/>orthophoto + OSM tiles"])
+        GPS0(["Initial GPS prior<br/>one-shot pre-flight fix"])
+        IMU(["IMU stream<br/>accel · gyro · mag · baro · airspeed"])
+        CAM(["Camera frames<br/>downward · approx 5 Hz JPEG"])
+    end
+
+    %% ── Subsystems ─────────────────────────────────────────────
+    S1["1. Dataset Preprocessing<br/>Dataset_Preprocessing/<br/>see 01_dataset_preprocessing"]
+    S2["2. Semantic Training<br/>SemanticTerrainSegmentationModel/<br/>see 02_semantic_training"]
+    S3["3. Visual Localisation<br/>Pipeline_3_Rev1/<br/>see 03_visual_localization"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT(["Per-frame geodetic estimate<br/>results.csv · PX4 GPS_INPUT (msg 232)"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    QGIS -->|"aerial/16/{x}/{y}.png"| S1
+    QGIS -->|"aerial + mask + tile_index"| S2
+
+    S2 -->|"best.pth"| S1
+    S2 -->|"best.pth"| S3
+
+    S1 -->|"prediction/16/{x}/{y}.png"| S3
+    S1 -->|"reference_features.h5"| S3
+    S1 -->|"aerial/16/{x}/{y}.png"| S3
+
+    GPS0 -->|"lat0 / lon0 (seed once)"| S3
+    IMU -->|"row dicts"| S3
+    CAM -->|"query frames"| S3
+
+    S3 -->|"per-frame state"| OUT

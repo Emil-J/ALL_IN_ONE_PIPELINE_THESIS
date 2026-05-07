@@ -1,0 +1,42 @@
+%% Level 3 — Per-frame orchestrator: cold start vs temporal tracking.
+%% File: src/temporal_searcher.py
+%%       + src/best_first_search.py · src/particle_filter.py · src/meta_tile_builder.py
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        IN_FRAME(["query_frame · imu_data · ts"])
+        IN_EKF(["EKF lat / lon / heading"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    DISP{"frame_count == 0?"}
+
+    BFS["best_first_search.py<br/>BestFirstSearcher.search<br/>tiles in IMU radius (~500 m)"]
+    PF_INIT["particle_filter.py<br/>__init__<br/>spread depends on quality"]
+
+    PF_PRED["particle_filter.py<br/>predict(dt, vel, gyro_z)"]
+    REGION["get_search_region<br/>radius · heading_spread"]
+    MTB["meta_tile_builder.py<br/>first_pass · second_pass · stitch · verify"]
+    PF_UPD["particle_filter.py<br/>update + resample + divergence check"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs (downstream stage 34)"]
+        OUT_FEATS(["query SuperPoint features"])
+        OUT_TILES(["ranked tiles + meta-tile"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IN_FRAME --> DISP
+    IN_EKF --> DISP
+    DISP -->|"frame 0 (cold start)"| BFS
+    BFS --> PF_INIT
+    PF_INIT --> OUT_FEATS
+    BFS --> OUT_TILES
+
+    DISP -->|"frame N (temporal)"| PF_PRED
+    PF_PRED --> REGION
+    REGION -->|"radius + heading"| MTB
+    MTB --> PF_UPD
+    MTB --> OUT_FEATS
+    MTB --> OUT_TILES

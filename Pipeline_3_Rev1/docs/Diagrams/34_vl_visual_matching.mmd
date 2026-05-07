@@ -1,0 +1,46 @@
+%% Level 3 — Visual matching pipeline.
+%% Files: src/image_utils.py · src/geometric_matcher.py
+%%        src/visual_measurement.py · src/position_estimator.py · src/tile_utils.py
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        Q_IN(["raw query frame<br/>1920x1079 RGB"])
+        HDG_IN(["EKF heading"])
+        TILES_IN(["reference tile / meta-tile"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    ROT["image_utils.rotate_image<br/>(by -heading)"]
+    RM["image_utils.resize_for_matching<br/>(longest edge <= 1280)"]
+
+    GM_E["geometric_matcher.extract_features<br/>SuperPoint (cached per frame)"]
+    GM_M["geometric_matcher.match_precomputed<br/>LightGlue"]
+
+    DH["visual_measurement.compute_dual_homography<br/>DLT + MAGSAC++"]
+    EVM["visual_measurement.extract_visual_measurements<br/>cascade: nadir / trimmed / inlier / weighted / projected"]
+
+    PE["position_estimator.pixel_to_latlon<br/>(single tile / meta-tile)"]
+    TU["tile_utils.tile_to_latlon<br/>TMS math"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT_HOMO(["homo_position<br/>(lat, lon)"])
+        OUT_QUAL(["quality<br/>CShape · inliers · convex"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    Q_IN -->|"raw frame"| ROT
+    HDG_IN -->|"angle"| ROT
+    ROT -->|"rotated frame"| RM
+    RM -->|"<= 1280 px"| GM_E
+    GM_E -->|"query feats"| GM_M
+    TILES_IN -->|"reference image"| GM_M
+
+    GM_M -->|"matches (K, 2)"| DH
+    DH -->|"H · inlier mask"| EVM
+    DH --> OUT_QUAL
+
+    EVM -->|"chosen pixel measurement"| PE
+    TU -.->|"tile bounds"| PE
+    PE --> OUT_HOMO

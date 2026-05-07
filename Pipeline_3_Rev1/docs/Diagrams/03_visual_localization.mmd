@@ -1,0 +1,114 @@
+%% Level 2 — Visual Localisation Pipeline (Pipeline_3_Rev1/).
+%% All 17 .py files shown as separate nodes, grouped by phase.
+%% Top = inputs, bottom = outputs, every arrow labelled with data type.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        GPS0(["Initial GPS prior<br/>one-shot pre-flight fix"])
+        IMU(["IMU stream<br/>row dicts"])
+        CAM(["Camera frames<br/>1920x1079 JPEG"])
+        REF_AER[("aerial/16/{x}/{y}.png")]
+        REF_PRED[("prediction/16/{x}/{y}.png")]
+        REF_H5[("reference_features.h5")]
+        REF_PTH[("best.pth")]
+    end
+
+    %% ── Code (every .py file) ──────────────────────────────────
+    subgraph IO_GRP["runtime/ — entry & I/O"]
+        RP["run_pipeline.py<br/>main · file/SimConnect modes<br/>per-frame loop · writers<br/>see 31_vl_input_bootstrap · 36_vl_fusion_output"]
+        SCA["simconnect_adapter.py<br/>FileSource · SimConnectLiveSource"]
+    end
+
+    subgraph EKF_GRP["State estimation"]
+        EKF["src/ekf_ins.py<br/>ErrorStateEKF (10D)<br/>step_ekf · update_position<br/>see 32_vl_ekf_state"]
+        WMM["src/wmm_declination.py<br/>WMM2025 dec / inc<br/>(init only)"]
+    end
+
+    TS["src/temporal_searcher.py<br/>TemporalSearcher.process_frame<br/>see 33_vl_frame_dispatch"]
+
+    BFS["src/best_first_search.py<br/>BestFirstSearcher.search<br/>cold-start radius search"]
+
+    subgraph FN_GRP["Frame-N temporal tracking"]
+        PF["src/particle_filter.py<br/>ParticleFilter · predict / update / resample"]
+        MTB["src/meta_tile_builder.py<br/>first_pass · second_pass · stitch · verify"]
+    end
+
+    subgraph GEOM_GRP["Image preproc and TMS geometry"]
+        IU["src/image_utils.py<br/>load_image · preprocess_query_frame ·<br/>resize_for_matching"]
+        TU["src/tile_utils.py<br/>TMS math · TileLoader ·<br/>find_tiles_within_radius"]
+    end
+
+    subgraph MATCH_GRP["Visual matching — see 34_vl_visual_matching"]
+        GM["src/geometric_matcher.py<br/>SuperPoint + LightGlue wrapper"]
+        VM["src/visual_measurement.py<br/>compute_dual_homography ·<br/>extract_visual_measurements"]
+        PE["src/position_estimator.py<br/>pixel_to_latlon"]
+    end
+
+    subgraph SEM_GRP["Semantic gate — see 35_vl_semantic_gate"]
+        SM["src/semantic_model.py<br/>UNet++ inference wrapper"]
+        STS["src/semantic_tile_scorer.py<br/>histogram intersection prefilter"]
+        SC["src/semantic_confirmer.py<br/>post-match histogram confirmation"]
+    end
+
+    CFG["config/config.py<br/>~70 parameters<br/>gate thresholds · R_HIGH/MED/COLD · LOOKAHEAD_M"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        CSV[("results.csv<br/>(29 cols · per-frame state)")]
+        PX4[("px4_gps_input.csv<br/>MAVLink GPS_INPUT msg 232")]
+        EXTRA[("analysis_extras.csv<br/>n_eff · spread · homo_offset")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    GPS0 -->|"lat0 / lon0"| RP
+    IMU -->|"row dict"| SCA
+    CAM -->|"JPEG"| SCA
+    SCA -->|"(frame, imu, ts)"| RP
+
+    CFG -.->|"params"| RP
+    CFG -.->|"params"| TS
+    CFG -.->|"params"| MTB
+    CFG -.->|"params"| PF
+
+    RP -->|"_init_ekf · bootstrap"| EKF
+    RP -->|"lat0/lon0/alt0"| WMM
+    WMM -->|"dec · inc"| EKF
+    RP -->|"step_ekf per row"| EKF
+    EKF -->|"predicted lat/lon/heading"| RP
+
+    RP -->|"query, imu, ts"| TS
+    TS -->|"frame 0"| BFS
+    TS -->|"frame N"| PF
+    TS -->|"raw query"| IU
+    IU -->|"rotated 1280px"| GM
+    IU -->|"512x512 padded"| SM
+
+    REF_PTH -->|"weights"| SM
+    SM -->|"query class mask"| STS
+    REF_PRED -->|"reference mask"| STS
+    STS -->|"top-K candidates"| MTB
+
+    PF -->|"search radius / heading"| MTB
+    REF_AER -->|"tile loads"| TU
+    REF_H5 -->|"cached features"| TU
+    TU -->|"tiles"| BFS
+    TU -->|"tiles"| MTB
+    BFS -->|"query feats"| GM
+    MTB -->|"meta-tile"| GM
+
+    GM -->|"matches (K,2)"| VM
+    VM -->|"H · CShape · inliers"| PE
+    PE -->|"homo_position (lat, lon)"| RP
+    TU -->|"TMS math"| PE
+
+    SM -->|"query mask"| SC
+    REF_PRED -->|"meta-tile mask"| SC
+    SC -->|"semantic_conf"| RP
+
+    RP -->|"corrected (lat, lon) + R"| EKF
+    EKF -->|"get_state"| RP
+
+    RP -->|"per-frame row"| CSV
+    RP -->|"GPS_INPUT row"| PX4
+    RP -->|"PF + offset"| EXTRA

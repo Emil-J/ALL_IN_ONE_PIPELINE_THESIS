@@ -1,0 +1,36 @@
+%% Level 3 — Semantic gate (prefilter + post-match confirmation).
+%% Files: src/image_utils.py · src/semantic_model.py
+%%        src/semantic_tile_scorer.py · src/semantic_confirmer.py
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        Q_IN(["raw query frame"])
+        REF_IN[("prediction/16/{x}/{y}.png<br/>reference class masks")]
+        BPTH_IN[("best.pth<br/>UNet++ checkpoint")]
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    PP["image_utils.preprocess_query_frame<br/>resize 512x288 then pad 512x512"]
+    SM["semantic_model.predict<br/>UNet++ inference"]
+
+    SCORE["semantic_tile_scorer.score_tiles<br/>histogram intersection<br/>(viewpoint-invariant)"]
+    CONF["semantic_confirmer.confirm<br/>histogram intersection vs<br/>meta-tile reference mask"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        OUT_TOP(["top-K tile candidates<br/>to meta_tile_builder (stage 33)"])
+        OUT_CONF(["semantic_confidence in [0, 1]<br/>to adaptive R (stage 36)"])
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    BPTH_IN -.->|"weights"| SM
+    Q_IN -->|"raw frame"| PP
+    PP -->|"512x512 RGB"| SM
+    SM -->|"query class mask 512x512"| SCORE
+    SM -->|"query class mask"| CONF
+    REF_IN -->|"per-tile masks"| SCORE
+    REF_IN -->|"meta-tile masks"| CONF
+
+    SCORE -->|"ranked candidates"| OUT_TOP
+    CONF -->|"confidence"| OUT_CONF

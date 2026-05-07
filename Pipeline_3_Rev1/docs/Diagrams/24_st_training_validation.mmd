@@ -1,0 +1,51 @@
+%% Level 3 — Training loop + triple validation + checkpoint manager.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs"]
+        DL_IN(["DataLoader (combined-val mix)"])
+        WIN_IN(["winter-val DataLoader"])
+        SUM_IN(["summer-val DataLoader"])
+    end
+
+    %% ── Process ────────────────────────────────────────────────
+    EPOCH["epoch loop"]
+    UPD_CURR["update curriculum<br/>set winter_prob"]
+    UNFREEZE["unfreeze encoder<br/>at epoch >= 2"]
+    STEP["train_one_epoch_accum<br/>fwd · loss · AMP backward · clip · step"]
+
+    VC["validate(combined-val)<br/>curriculum mix"]
+    VW["validate(winter-val)<br/>forgetting probe"]
+    VS["validate(summer-val)<br/>target metric"]
+
+    METRIC["per-class IoU · macro IoU · accuracy"]
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        LATEST_OUT[("latest.pth<br/>every epoch")]
+        BEST_OUT[("best.pth<br/>summer IoU improved")]
+        SNAP_OUT[("epoch_NNNN.pth<br/>every 10 epochs")]
+        LOG_OUT[("train_log.csv +<br/>per_class_iou*.jsonl")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    EPOCH -->|"start"| UPD_CURR
+    UPD_CURR --> UNFREEZE
+    UNFREEZE --> STEP
+    DL_IN -->|"train batches"| STEP
+
+    STEP -->|"end of epoch"| VC
+    STEP --> VW
+    STEP --> VS
+    DL_IN -->|"val batches"| VC
+    WIN_IN -->|"val batches"| VW
+    SUM_IN -->|"val batches"| VS
+
+    VC --> METRIC
+    VW --> METRIC
+    VS --> METRIC
+
+    METRIC --> LATEST_OUT
+    METRIC --> BEST_OUT
+    METRIC --> SNAP_OUT
+    METRIC --> LOG_OUT
