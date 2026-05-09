@@ -20,8 +20,8 @@ ALL_IN_ONE_ROOT = Path(_env_root) if _env_root else PROJECT_ROOT.parent
 # ═══════════════════════════════════════════════════════════════════
 
 # Reference TMS tileset (Copenhagen, Denmark - zoom 16)
-REFERENCE_TILES_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" / "aerial"
-REFERENCE_PRED_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" / "prediction"
+REFERENCE_TILES_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_ODENSE" / "aerial"
+REFERENCE_PRED_DIR = ALL_IN_ONE_ROOT / "REFERENCE_MAP_ODENSE" / "prediction"
 REFERENCE_METADATA_CSV = ALL_IN_ONE_ROOT / "reference_tiles_metadata.csv"
 
 # Query frames
@@ -34,7 +34,7 @@ IMU_CSV_PATH = ALL_IN_ONE_ROOT / "Logs_Run_20260321_162024" / "imu_gps_log_20260
 SEMANTIC_MODEL_PATH = ALL_IN_ONE_ROOT / "SemanticTerrainSegmentationModel" / "best.pth"
 
 # Precomputed SuperPoint reference features (HDF5 store from Dataset_Preprocessing)
-REFERENCE_FEATURES_PATH = ALL_IN_ONE_ROOT / "REFERENCE_MAP_CPH" /  "reference_features.h5"
+REFERENCE_FEATURES_PATH = ALL_IN_ONE_ROOT / "REFERENCE_MAP_ODENSE" /  "reference_features.h5"
 
 # ═══════════════════════════════════════════════════════════════════
 # OUTPUT PATHS
@@ -63,10 +63,10 @@ TMS_TILE_SIZE_PX = 512  # pixels per tile
 EARTH_RADIUS_METERS = 6371000.0
 
 # Tile coordinate ranges for the reference map (matches tiles on disk)
-TILE_X_MIN = 34994
-TILE_X_MAX = 35090
-TILE_Y_MIN = 44976
-TILE_Y_MAX = 45063
+TILE_X_MIN = 34630
+TILE_X_MAX = 34689
+TILE_Y_MIN = 44916
+TILE_Y_MAX = 44948
 
 # Approximate tile size in meters at latitude ~55.6°N, zoom 16
 # Formula: (circumference * cos(lat)) / 2^zoom

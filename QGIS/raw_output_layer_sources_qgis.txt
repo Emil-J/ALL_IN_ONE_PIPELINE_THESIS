@@ -1,0 +1,268 @@
+# Python Console
+# Use iface to access QGIS API interface or type '?' for more info
+# Security warning: typing commands from an untrusted source can harm your computer
+exec(compile(Path('C:/Users/emilj/Documents/Thesis/Thesis/Layer_Groups_and_Paths_and_sources.py').read_text(), 'C:/Users/emilj/Documents/Thesis/Thesis/Layer_Groups_and_Paths_and_sources.py', 'exec'))
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Geofabrik_Denmark_Buildings — gis_osm_buildings_a_free_1
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Dataforsyning_Buildings.gpkg|layername=gis_osm_buildings_a_free_1
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: aeroway
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/aeroway.gpkg|layername=aeroway|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_unclassified.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_unclassified.osm.gpkg|layername=roads_unclassified.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_trunk.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_trunk.osm.gpkg|layername=roads_trunk.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_bridleway.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_bridleway.osm.gpkg|layername=roads_bridleway.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_residential.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_residential.osm.gpkg|layername=roads_residential.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_motorway.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_motorway.osm.gpkg|layername=roads_motorway.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_footway.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_footway.osm.gpkg|layername=roads_footway.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_cycleway.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_cycleway.osm.gpkg|layername=roads_cycleway.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_primary.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_primary.osm.gpkg|layername=roads_primary.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_pedestrian.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_pedestrian.osm.gpkg|layername=roads_pedestrian.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_living_street.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_living_street.osm.gpkg|layername=roads_living_street.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_secondary.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_secondary.osm.gpkg|layername=roads_secondary.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_service.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_service.osm.gpkg|layername=roads_service.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_tertiary.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_tertiary.osm.gpkg|layername=roads_tertiary.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/ROAD
+Layer name: roads_raceway.osm_lines
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_raceway.osm.gpkg|layername=roads_raceway.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/OFFROAD
+Layer name: roads_path.osm_lines_OFFROAD(PEDESTRIAN/AGRICULTURE/MOTORIZED)
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_path.osm.gpkg|layername=roads_path.osm_lines
+================================================================================
+Group: GeoPackageSemanticData/OSM_Roads/OFFROAD
+Layer name: roads_track.osm_lines_OFFROAD(FOREST/AGRICULTURE)
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Roads GPKG/roads_track.osm.gpkg|layername=roads_track.osm_lines
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Geofabrik_Denmark_Railway — gis_osm_railways_free_1
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Dataforsyning_Railway.gpkg|layername=gis_osm_railways_free_1
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Geofabrik_Denmark_Water — gis_osm_water_a_free_1
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Dataforsyning_Water.gpkg|layername=gis_osm_water_a_free_1
+================================================================================
+Group: GeoPackageSemanticData/OSM_Water
+Layer name: landuse_basin
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Water/landuse_basin.gpkg|layername=landuse_basin
+================================================================================
+Group: GeoPackageSemanticData/OSM_Water
+Layer name: natural_water_1 — natural_water
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Water/natural_water_1.gpkg|layername=natural_water
+================================================================================
+Group: GeoPackageSemanticData/OSM_Water
+Layer name: basin
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Water/Basin.gpkg|layername=Basin_multipolygons
+================================================================================
+Group: GeoPackageSemanticData/OSM_Water
+Layer name: basin_1 — basin
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Water/basin_1.gpkg|layername=basin
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_tidal_channel
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_tidal_channel.gpkg|layername=waterways_tidal_channel
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_stream
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_stream.gpkg|layername=waterways_stream|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_river
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_river.gpkg|layername=waterways_river|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_drain
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_drain.gpkg|layername=waterways_drain|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_ditch
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_ditch.gpkg|layername=waterways_ditch|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData/OSM_Waterways
+Layer name: waterways_canal
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Waterways GPKG/waterways_canal.gpkg|layername=waterways_canal|geometrytype=LineString
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Dataforsyning_Forests — fredskovflade_gaeldende
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Dataforsyning_Forests.gpkg|layername=fredskovflade_gaeldende
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Forest_GFC_EC_N60_E10
+Layer type: 1
+Provider: gdal
+Source: C:/Users/emilj/Documents/Thesis/Thesis/EC_GlobalForestCover2020/Forest_GFC_EC_N60_E10.gpkg
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Forest_GFC_EC_N60_E0
+Layer type: 1
+Provider: gdal
+Source: C:/Users/emilj/Documents/Thesis/Forest_GFC_EC_N60_E0.gpkg
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: natural_tree_row
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/natural_tree_row.gpkg|layername=natural_tree_row
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: natural_tree_row_lines — natural_tree_row
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/natural_tree_row_lines.gpkg|layername=natural_tree_row
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: natural_wood_area — natural_wood
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/natural_wood_area.gpkg|layername=natural_wood
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: boundary_forest_compartment_area — boundary_forest_compartment
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/boundary_forest_compartment_area.gpkg|layername=boundary_forest_compartment
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: boundary_forest_area — boundary_forest
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/boundary_forest_area.gpkg|layername=boundary_forest
+================================================================================
+Group: GeoPackageSemanticData/OSM_Forests
+Layer name: landuse_forests_5 — landuse_forest_copy
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Forests/landuse_forests_5.gpkg|layername=landuse_forest_copy
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Denmark_Land — denmark_land
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSMIUM_Extract/Denmark_Land.gpkg|layername=denmark_land|option:LIST_ALL_TABLES=YES|option:IMMUTABLE=YES
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: natural_bay
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Thesis/Thesis/OSM_Water/natural_bay.gpkg|layername=natural_bay
+================================================================================
+Group: GeoPackageSemanticData
+Layer name: Denmark_Water
+Layer type: 0
+Provider: ogr
+Source: C:/Users/emilj/Documents/Denmark_Water.gpkg|layername=Denmark_Water
+================================================================================
+Group: [No group]
+Layer name: Bing Satellite
+Layer type: 1
+Provider: wms
+Source: crs=EPSG:3857&format&type=xyz&url=http://ecn.t3.tiles.virtualearth.net/tiles/a%7Bq%7D.jpeg?g%3D0%26dir%3Ddir_n'&zmax=19&zmin=0
+================================================================================
+Group: [No group]
+Layer name: orto_foraar_wmts
+Layer type: 1
+Provider: wms
+Source: crs=EPSG:25832&dpiMode=7&featureCount=10&format=image/jpeg&layers=orto_foraar_wmts&styles=default&tileMatrixSet=KortforsyningTilingDK&tilePixelRatio=0&url=https://services.datafordeler.dk/GeoDanmarkOrto/orto_foraar_wmts/1.0.0/WMTS?username%3DQUKJWQLYEZ%26password%3DUP7d7!tbaHzAwxU%26service%3DWMTS%26request%3DGetCapabilities
