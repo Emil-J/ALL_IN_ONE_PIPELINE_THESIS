@@ -1002,7 +1002,62 @@ A frame triggers an EKF update only if all three conditions are met:
 \end{equation}
 
 Frames that fail the gate cause the EKF to coast on IMU dead reckoning, growing
-$\sigma_{pos}$ until the next successful gate pass.
+$\sigma_{pos}$ until the next successful gate pass --- \emph{in file mode}. Live
+mode contains an auxiliary fallback discussed in Section~\ref{sec:gp8} below.
+
+\subsection{Live-mode auxiliary GPS fallback (GP8)}
+\label{sec:gp8}
+
+\noindent\textbf{Primary file:} \texttt{runtime/run\_pipeline.py:752--763}
+(only in \texttt{run\_simconnect\_mode}; \emph{absent} from
+\texttt{run\_file\_mode}).
+
+In live SimConnect mode, when the visual quality gate fails for a frame, the
+runtime injects the SimConnect GPS sample as a soft Kalman update with
+deliberately loose measurement noise:
+
+\begin{equation}
+    \text{gate\_pass} = \text{False} \;\Longrightarrow\;
+    \text{ekf.update\_position}(\lambda_{sim}, \varphi_{sim},\, R_{aux})
+    \quad \text{with}\; R_{aux} = 200^2 = 40\,000 \text{ m}^2
+    \label{eq:gp8}
+\end{equation}
+
+Since the sensor is the simulator's ground-truth GPS, this update
+\emph{technically violates the GPS-denied claim} for the affected frames. The
+intent (per the inline comment at \texttt{run\_pipeline.py:753-757}) is
+operational: it keeps the EKF search region anchored inside the reference map
+during sustained visual failure, preventing unbounded drift in long live demos.
+The bounded $R_{aux}$ ensures it acts as a soft anchor rather than a precise
+fix.
+
+\paragraph{Thesis implications.}
+The auxiliary fallback should be treated as scaffolding, not as part of the
+core localisation method. Specifically:
+
+\begin{enumerate}
+    \item \textbf{File mode evaluations} (where the GP8 branch is absent) are
+          the clean GPS-denied result. They are the headline figure for the
+          thesis claim.
+    \item \textbf{Live mode evaluations} as shipped today contain a small
+          fraction of frames anchored to GP8. On the reference run
+          \texttt{live\_020\_Odense\_f1} (125 frames, 96\,\% gate pass), 5/125
+          frames received the auxiliary update.
+    \item For thesis-quality live-mode evaluations, GP8 should either be
+          disabled, or the aggregate metrics should be partitioned by
+          \texttt{gate\_pass} so the GPS-denied subset is reported separately.
+    \item The architecture diagrams render GP8 as a dashed auxiliary edge
+          (e.g.\ \texttt{docs/Diagrams/05\_ekf\_visual\_fusion.mmd},
+          \texttt{37\_vl\_gp8\_disclosure.mmd}) so it is visually unmistakable
+          that the path is not part of the core method.
+    \item The recommended thesis wording is
+          \emph{``GPS-denied after a single initial geodetic prior at $t_0$''},
+          not ``GPS-free'' or ``never uses GPS''.
+\end{enumerate}
+
+For the full source-grounded audit see
+\texttt{docs/GPS\_DENIED\_INTEGRITY\_AUDIT.md}; for the brutally honest thesis
+implications see \texttt{docs/BS\_CHECK.md}.
 
 \subsection{Final State Extraction}
 

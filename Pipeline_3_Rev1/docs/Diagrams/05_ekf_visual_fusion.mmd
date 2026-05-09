@@ -1,0 +1,85 @@
+%% Level 3 — Inside one frame's EKF + visual fusion (LIVE MODE).
+%% Files: runtime/run_pipeline.py (run_simconnect_mode 608-927) ·
+%%        src/ekf_ins.py (predict, update_*, update_position) ·
+%%        src/visual_measurement.py (compute_dual_homography, extract_visual_measurements).
+%% Verified line numbers (2026-05-09): EKF.update_position 398; GP8 fallback 752-763.
+%% NOTE: GP8 (live-mode sim-GPS fallback) is rendered as a DASHED auxiliary edge.
+%%   It is operational scaffolding, NOT part of the GPS-denied localisation method.
+%%   See docs/GPS_DENIED_INTEGRITY_AUDIT.md and docs/BS_CHECK.md.
+flowchart TD
+
+    %% ── Predict phase ──────────────────────────────────────────
+    subgraph PREDICT["EKF predict — step_ekf(ekf, row, prev_ts)"]
+        IMU_ROW(["IMU row<br/>accel · gyro · mag_heading · baro · airspeed · pitch · bank"])
+        REMAP["MSFS axis remap<br/>(ft/s² → m/s², handedness, gravity synthesis)"]
+        PRED["ekf.predict(omega, accel, dt)<br/>q_tilde · vel_n · vel_e · pos_n · pos_e<br/>P = F·P·Fᵀ + Q  (10×10)"]
+    end
+
+    %% ── Sensor updates ────────────────────────────────────────
+    subgraph SENSE["Sensor updates — within step_ekf"]
+        BARO["update_barometer(altitude_m, ts)<br/>(scalar, deterministic)"]
+        AM["update_accel_mag(accel, mag_heading_deg)<br/>roll/pitch from gravity vector + scalar yaw innovation"]
+        AS["update_airspeed(V_air, mag_heading_deg)<br/>observes wind_n, wind_e; blends velocity"]
+    end
+
+    %% ── Visual measurement chain ──────────────────────────────
+    subgraph VISUAL["Visual measurement (TemporalSearcher.process_frame)"]
+        FRAME(["query frame (1920×1079 RGB)"])
+        ROT["rotate_image(frame, -heading)<br/>resize ≤ 1280 px"]
+        MTB["MetaTileBuilder.run<br/>first pass · 8-neigh expand · stitch top-3 · verify"]
+        DH["compute_dual_homography (MAGSAC++ vs LMEDS)<br/>winner by CShape × inliers"]
+        EVM["extract_visual_measurements<br/>cascade: nadir_corrected → trimmed → inlier → weighted → projected"]
+        SEM["semantic_model.predict + SemanticConfirmer<br/>centroid alignment confidence"]
+    end
+
+    %% ── Quality assessment + look-ahead + adaptive R ──────────
+    subgraph FUSION["Fusion controller"]
+        GATE{"gate_pass?<br/>CShape > 0.3 AND inliers > 20<br/>AND homo_position valid"}
+        LA["look-ahead correction<br/>shift −110·cos(bank) m along EKF heading"]
+        AR["adaptive R<br/>R_HIGH=900 (CS>0.5, inl>100)<br/>R_MED=3600 (otherwise)<br/>R_COLD=10000 (cold start)<br/>·2 if bank > 20°<br/>·2 if not meta-verified<br/>·max(0.5, 2 − 1.5·sem_conf)"]
+    end
+
+    %% ── EKF position update ───────────────────────────────────
+    subgraph UPDATE["EKF position update — src/ekf_ins.py:update_position(lat, lon, R) (line 398)"]
+        CONV["NED conversion<br/>z = (φ−φ₀)·R_E ; (λ−λ₀)·R_E·cos(φ₀)"]
+        K["Kalman gain<br/>S = HPHᵀ + R<br/>K = PHᵀS⁻¹"]
+        APPLY["apply δstate to all blocks<br/>(orientation · bias · wind · position)<br/>P ← P − K·S·Kᵀ"]
+    end
+
+    %% ── GP8 fallback (auxiliary, dashed) ──────────────────────
+    subgraph GP8_GRP["**GP8 — live-mode sim-GPS fallback (auxiliary, NOT GPS-denied)**"]
+        GP8(["sim_lat, sim_lon = row.latitude, row.longitude<br/>R = 200² = 40 000 m²<br/>only when gate_pass = False<br/>**absent in file mode**"])
+    end
+
+    %% ── Output ────────────────────────────────────────────────
+    OUT(["ekf.get_state()<br/>final_lat = lat0 + pos_n/R_E<br/>final_lon = lon0 + pos_e/(R_E·cos(lat0))<br/>pos_sigma = √max(P[8,8], P[9,9])"])
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IMU_ROW --> REMAP --> PRED
+    PRED --> BARO --> AM --> AS
+
+    FRAME --> ROT --> MTB --> DH --> EVM
+    FRAME --> SEM
+    MTB --> SEM
+
+    EVM -->|"homo_position"| LA
+    EVM -->|"CShape, inliers"| GATE
+    SEM -->|"semantic_conf"| AR
+    GATE -->|"pass"| LA
+    LA --> AR
+    AR -->|"R · corrected (φ, λ)"| CONV
+    CONV --> K --> APPLY
+
+    %% GP8 dashed edge (auxiliary fallback)
+    GATE -. "fail (live mode only)" .-> GP8
+    GP8 -. "sim · R=200²" .-> CONV
+
+    AS --> OUT
+    APPLY --> OUT
+
+    %% ── Styling ───────────────────────────────────────────────
+    classDef gp8node fill:#fdecea,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 5,color:#7a1f1a;
+    class GP8 gp8node
+    class GP8_GRP gp8node
+    linkStyle 13 stroke:#c0392b,stroke-dasharray:5 5
+    linkStyle 14 stroke:#c0392b,stroke-dasharray:5 5

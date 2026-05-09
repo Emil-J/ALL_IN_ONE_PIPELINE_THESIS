@@ -749,19 +749,6 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                                             R_pos_m2=r_used)
                         gate_count += 1
 
-                if not gate_pass:
-                    # Live mode: SimConnect GPS is available even when visual
-                    # localization fails.  Feed it as a very loose anchor
-                    # (R = 200² = 40 000 m²) so the EKF search region stays
-                    # inside the reference map.  Visual updates (R = 900–3 600 m²)
-                    # still dominate whenever they occur.
-                    sim_lat = row.get("latitude") if row else None
-                    sim_lon = row.get("longitude") if row else None
-                    if (sim_lat is not None and sim_lon is not None
-                            and abs(float(sim_lat)) > 1.0):
-                        ekf.update_position(float(sim_lat), float(sim_lon),
-                                            R_pos_m2=200.0 ** 2)
-
                 final = ekf.get_state()
                 pos_sigma = math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9]))
                 _gps_est_ts = time.perf_counter()

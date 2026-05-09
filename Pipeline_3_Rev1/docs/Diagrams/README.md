@@ -20,6 +20,9 @@ and analysis-only files are excluded — they live under
 | [`01_dataset_preprocessing.mmd`](01_dataset_preprocessing.mmd) | L2 | L1 | `Dataset_Preprocessing/` — every file as a node |
 | [`02_semantic_training.mmd`](02_semantic_training.mmd) | L2 | L1 | `SemanticTerrainSegmentationModel/` — notebook + artefacts |
 | [`03_visual_localization.mmd`](03_visual_localization.mmd) | L2 | L1 | `Pipeline_3_Rev1/` — all 17 `.py` files in subgraphs |
+| [`04_file_replay_pipeline.mmd`](04_file_replay_pipeline.mmd) | L2 | L1 | File-mode replay (currently **broken-as-configured** vs. Odense) |
+| [`05_ekf_visual_fusion.mmd`](05_ekf_visual_fusion.mmd) | L2/L3 | L2-VL | Inside one frame: predict → sensors → visual → adaptive R → update_position. **GP8 dashed.** |
+| [`06_artifact_flow.mmd`](06_artifact_flow.mmd) | L1 | — | Producer → consumer for every artefact on disk |
 | [`11_dp_qgis_workflow.mmd`](11_dp_qgis_workflow.mmd) | L3 | L2-DP | QGIS manual stage (external) |
 | [`12_dp_semantic_prediction.mmd`](12_dp_semantic_prediction.mmd) | L3 | L2-DP | `semantic_preprocessor.py` internals |
 | [`13_dp_superpoint_extraction.mmd`](13_dp_superpoint_extraction.mmd) | L3 | L2-DP | `superpoint_preprocessor.py` + `feature_store.py` |
@@ -32,7 +35,8 @@ and analysis-only files are excluded — they live under
 | [`33_vl_frame_dispatch.mmd`](33_vl_frame_dispatch.mmd) | L3 | L2-VL | TemporalSearcher + BFS / PF / MetaTileBuilder |
 | [`34_vl_visual_matching.mmd`](34_vl_visual_matching.mmd) | L3 | L2-VL | Image preproc + SP+LG + dual homography + cascade |
 | [`35_vl_semantic_gate.mmd`](35_vl_semantic_gate.mmd) | L3 | L2-VL | Semantic prefilter + confirmation |
-| [`36_vl_fusion_output.mmd`](36_vl_fusion_output.mmd) | L3 | L2-VL | Quality gate + look-ahead + adaptive R + outputs |
+| [`36_vl_fusion_output.mmd`](36_vl_fusion_output.mmd) | L3 | L2-VL | Quality gate + look-ahead + adaptive R + outputs (now shows GP8 dashed) |
+| [`37_vl_gp8_disclosure.mmd`](37_vl_gp8_disclosure.mmd) | L3 | L2-VL | Focused GP8 disclosure: live-mode sim-GPS fallback (auxiliary, not GPS-denied) |
 
 ---
 
@@ -75,8 +79,19 @@ flowchart TD
 
 Read the inputs, then each subsystem. The **initial GPS prior** is a single
 GPS fix used only to seed the EKF origin `(lat0, lon0)` and the initial
-position covariance — after the seed, GPS is never read again. Source depends
-on run mode:
+position covariance.
+
+> ⚠ **Mode-dependent caveat (added 2026-05-09):** In **file mode**, GPS is
+> never read after the seed (purely GPS-denied after initialisation).
+> In **live mode**, the runtime contains an auxiliary fallback (**GP8**,
+> `runtime/run_pipeline.py:752-763`) that injects the SimConnect lat/lon
+> at R = 200² = 40 000 m² when the visual gate fails. This is operational
+> scaffolding, not part of the GPS-denied method. See
+> [`../GPS_DENIED_INTEGRITY_AUDIT.md`](../GPS_DENIED_INTEGRITY_AUDIT.md),
+> [`../BS_CHECK.md`](../BS_CHECK.md), and
+> [`37_vl_gp8_disclosure.mmd`](37_vl_gp8_disclosure.mmd).
+
+Source depends on run mode:
 
 - *File mode* — read from row 0 of the recorded IMU CSV.
 - *SimConnect (live) mode* — wait until the first SimConnect sample with

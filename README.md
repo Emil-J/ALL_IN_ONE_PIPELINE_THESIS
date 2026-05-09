@@ -67,3 +67,21 @@ It needs the map pre-downloaded. You can't fly somewhere you haven't planned for
 Calibration is empirical. The forward-tilt correction (110 meters) was tuned by hand for this specific simulated drone and camera. A real drone with a different camera mount needs a one-time recalibration.
 It struggles in featureless or rapidly banking flight. Open ocean, identical farmland, or a sharp turn can break the visual match for a few seconds. The system gracefully falls back to motion sensors during these moments, but accuracy degrades.
 It was tested in a simulator. A real-world deployment would surface new problems (camera lens distortion, lighting variation, motion blur, etc.).
+The live mode contains a small auxiliary path that uses simulator GPS as a soft anchor (R = 200 m std dev) on frames where the visual gate fails. This is operational scaffolding for the live demo — it keeps the drone's search region inside the reference map when visual matching fails for several frames in a row. **It is not part of the GPS-denied method.** The headline thesis numbers should come either from file-mode replay (no fallback at all) or from live runs with that fallback disabled. See [`Pipeline_3_Rev1/docs/GPS_DENIED_INTEGRITY_AUDIT.md`](Pipeline_3_Rev1/docs/GPS_DENIED_INTEGRITY_AUDIT.md) and [`Pipeline_3_Rev1/docs/BS_CHECK.md`](Pipeline_3_Rev1/docs/BS_CHECK.md) for the full disclosure.
+
+## Documentation Map
+
+For readers and for future Claude Code sessions:
+
+| Document | Purpose |
+|---|---|
+| [`Pipeline_3_Rev1/docs/CODEMAP.md`](Pipeline_3_Rev1/docs/CODEMAP.md) | Top-level reader index — every folder, every entry point, every key file. Start here. |
+| [`Pipeline_3_Rev1/docs/GPS_DENIED_INTEGRITY_AUDIT.md`](Pipeline_3_Rev1/docs/GPS_DENIED_INTEGRITY_AUDIT.md) | Source-grounded audit: every site that touches GPS-truth lat/lon, classified A–E. |
+| [`Pipeline_3_Rev1/docs/BS_CHECK.md`](Pipeline_3_Rev1/docs/BS_CHECK.md) | Brutally honest assessment of whether the GPS-denied claim is defensible. |
+| [`Pipeline_3_Rev1/docs/CALL_GRAPH.md`](Pipeline_3_Rev1/docs/CALL_GRAPH.md) | Live-mode runtime call graph (line-numbered, source-grounded). |
+| [`Pipeline_3_Rev1/docs/ARTEFACT_FLOW.md`](Pipeline_3_Rev1/docs/ARTEFACT_FLOW.md) | Producer → consumer table for every artefact on disk. |
+| [`Pipeline_3_Rev1/docs/CURRENT_BEHAVIOUR_BASELINE.md`](Pipeline_3_Rev1/docs/CURRENT_BEHAVIOUR_BASELINE.md) | Frozen Phase-0 baseline (live_020_Odense_f1, 125 frames, 96 % gate pass). |
+| [`Pipeline_3_Rev1/docs/pipeline_breakdown.tex`](Pipeline_3_Rev1/docs/pipeline_breakdown.tex) | Full LaTeX architecture document with equations. |
+| [`Pipeline_3_Rev1/docs/Diagrams/`](Pipeline_3_Rev1/docs/Diagrams/) | Mermaid architecture diagrams (00–06 system level, 11–37 sub-diagrams). |
+| [`Pipeline_3_Rev1/docs/FLAGS.md`](Pipeline_3_Rev1/docs/FLAGS.md) | Reference for every config flag and what it saves. |
+| [`CLAUDE.md`](CLAUDE.md) | Detailed development log: bug history, design decisions. |

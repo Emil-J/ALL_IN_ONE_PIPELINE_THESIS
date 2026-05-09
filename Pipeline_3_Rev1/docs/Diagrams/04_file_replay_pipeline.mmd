@@ -1,0 +1,86 @@
+%% Level 2 — File replay pipeline (Pipeline_3_Rev1/, --source file).
+%% Status: BROKEN AS CONFIGURED on the active Odense map (recorded log over Vejle).
+%%   See docs/CURRENT_BEHAVIOUR_BASELINE.md § "File-mode replay baseline".
+%%   The code path is sound; only the recorded log/active map mismatch.
+%% Files: runtime/run_pipeline.py:308-606 (run_file_mode + _process_one_frame).
+%%   Verified line numbers: _init_ekf 288, _process_one_frame 308, run_file_mode 433.
+%% Compared with live mode in 03_visual_localization.mmd; the only algorithmic
+%% delta is the absence of the GP8 sim-GPS fallback on gate failure.
+flowchart TD
+
+    %% ── Inputs ─────────────────────────────────────────────────
+    subgraph IN["Inputs (file mode)"]
+        IMU_CSV[("Logs_Run_*/imu_gps_log_*.csv")]
+        FRAMES[("Logs_Run_*/images_*/frame_*.jpg")]
+        REF_AER[("REFERENCE_MAP_*/aerial/16/{x}/{y}.png")]
+        REF_PRED[("REFERENCE_MAP_*/prediction/16/{x}/{y}.png")]
+        REF_H5[("REFERENCE_MAP_*/reference_features.h5")]
+        REF_PTH[("SemanticTerrainSegmentationModel/best.pth")]
+    end
+
+    %% ── Boot phase ─────────────────────────────────────────────
+    subgraph BOOT["Boot — runtime/run_pipeline.py::run_file_mode (line 433)"]
+        FS["FileSource(imu_csv, frames_dir)<br/>iter_aligned(start_row, max_frames)"]
+        INIT_EKF["_init_ekf(raw_df, start_row)<br/>line 288<br/>**GP2: row-0 GPS prior** (single sample)<br/>warm up step_ekf rows 1..start_row"]
+        INIT_MODELS["_init_models()<br/>load_semantic_model · matcher · TileLoader · FeatureStoreLoader"]
+        INIT_TS["TemporalSearcher(model, matcher, tiles, cfg, fs)"]
+    end
+
+    %% ── Per-frame loop ─────────────────────────────────────────
+    subgraph LOOP["Per-frame — _process_one_frame (line 308)"]
+        STEP_EKF["step_ekf(ekf, row, prev_ts)<br/>predict + baro + accel/mag + airspeed"]
+        IMU_DICT["build imu_data dict<br/>imu_data[lat,lon] = ekf_state (GP4 clean)"]
+        LOAD["load_image(frame_path)"]
+        PROCESS["TemporalSearcher.process_frame<br/>(see 33_vl_frame_dispatch)"]
+        LA["look-ahead correction<br/>−110·cos(bank) m along EKF heading"]
+        AR["adaptive R<br/>(R_HIGH/R_MED/R_COLD · m_bank · m_verify · m_sem)"]
+        UPD{"gate_pass?"}
+        UPD_VIS["ekf.update_position(homo_corr, R)<br/>**GP7 visual update — clean**"]
+        COAST["EKF coasts on IMU only<br/>**no sim-GPS fallback in file mode**<br/>(contrast with live mode GP8)"]
+        FINAL["ekf.get_state()<br/>final lat/lon · pos_sigma"]
+    end
+
+    %% ── Outputs ────────────────────────────────────────────────
+    subgraph OUT_GRP["Outputs"]
+        CSV[("outputs/runs/<id>/results.csv")]
+        META[("outputs/runs/<id>/run_meta.json")]
+        OPT[("optional: flight_data/, px4_gps_input.csv,<br/>analysis_extras.csv, timing_data.csv,<br/>pipeline_data/frame_NNNN/")]
+    end
+
+    %% ── Flow ───────────────────────────────────────────────────
+    IMU_CSV --> FS
+    FRAMES --> FS
+    REF_PTH --> INIT_MODELS
+    REF_AER --> INIT_MODELS
+    REF_PRED --> INIT_MODELS
+    REF_H5 --> INIT_MODELS
+
+    FS -->|"raw_df row 0"| INIT_EKF
+    FS -->|"aligned (csv_idx, ts, frame_path)"| LOOP
+    INIT_MODELS --> INIT_TS
+
+    INIT_EKF --> STEP_EKF
+    STEP_EKF --> IMU_DICT
+    IMU_DICT --> PROCESS
+    LOAD --> PROCESS
+    INIT_TS --> PROCESS
+
+    PROCESS -->|"homo_position"| LA
+    PROCESS -->|"CShape · inliers · sem_conf · meta_verified · method"| AR
+    LA --> AR
+    AR --> UPD
+    UPD -->|"gate_pass=True"| UPD_VIS
+    UPD -->|"gate_pass=False"| COAST
+    UPD_VIS --> FINAL
+    COAST --> FINAL
+
+    FINAL --> CSV
+    FINAL --> META
+    FINAL -.->|"if SAVE_*=True"| OPT
+
+    %% ── Annotation ─────────────────────────────────────────────
+    classDef warn fill:#fff7e0,stroke:#e07700,stroke-width:1px;
+    classDef clean fill:#e8f5e8,stroke:#2e7d32,stroke-width:1px;
+    class COAST clean
+    class INIT_EKF clean
+    class UPD_VIS clean

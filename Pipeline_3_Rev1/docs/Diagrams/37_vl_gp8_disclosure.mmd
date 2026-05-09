@@ -1,0 +1,53 @@
+%% Level 3 — GP8 live-mode sim-GPS fallback disclosure (focused view).
+%% This diagram exists specifically to make the GPS-denied integrity
+%% caveat unambiguous: in LIVE MODE, gate-failure frames receive a
+%% sim-GPS Kalman update with R = 200² = 40 000 m².
+%% In FILE MODE there is no such fallback — the EKF coasts on IMU only.
+%%
+%% Files (verified 2026-05-09):
+%%   runtime/run_pipeline.py:752-763  — live-mode fallback site (GP8)
+%%   runtime/run_pipeline.py:374-386  — file-mode equivalent (no fallback)
+%% See: docs/GPS_DENIED_INTEGRITY_AUDIT.md (Class C / Class D classification)
+%%      docs/BS_CHECK.md (thesis implications)
+flowchart TD
+
+    Q{"gate_pass?"}
+
+    subgraph PASS_BRANCH["gate_pass = True (clean GPS-denied path)"]
+        PASS["ekf.update_position(homo_corrected, R_adaptive)<br/>R ∈ {30², 60², 100²}<br/>**GP7 — visual measurement only**"]
+    end
+
+    subgraph FAIL_BRANCH_LIVE["gate_pass = False — LIVE MODE ONLY"]
+        FAIL_LIVE["**GP8 — sim-GPS fallback**<br/>sim_lat = row['latitude']<br/>sim_lon = row['longitude']<br/>ekf.update_position(sim_lat, sim_lon, R = 200² = 40 000 m²)<br/>auxiliary; not part of GPS-denied method"]
+    end
+
+    subgraph FAIL_BRANCH_FILE["gate_pass = False — FILE MODE"]
+        COAST["**no update**<br/>EKF coasts on IMU dead reckoning<br/>pos_sigma grows ~5 m/√s"]
+    end
+
+    OUT(["ekf.get_state()<br/>final_lat / final_lon / pos_sigma"])
+
+    Q -->|"True"| PASS
+    Q -. "False (LIVE)" .-> FAIL_LIVE
+    Q -. "False (FILE)" .-> COAST
+
+    PASS --> OUT
+    FAIL_LIVE -. " " .-> OUT
+    COAST --> OUT
+
+    NOTE["**Thesis implication:**<br/>Live-mode aggregate metrics that include<br/>any not-gate-pass frame mix GPS-denied and<br/>GPS-aided behaviour.<br/>For headline thesis numbers, use file mode<br/>OR exclude GP8 frames OR disable GP8 for<br/>evaluation runs.<br/>See BS_CHECK.md"]
+
+    OUT -.- NOTE
+
+    classDef ok fill:#e8f5e8,stroke:#2e7d32,stroke-width:1px;
+    classDef warn fill:#fdecea,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 5,color:#7a1f1a;
+    classDef neutral fill:#f0f0f0,stroke:#666,stroke-width:1px;
+
+    class PASS ok
+    class FAIL_LIVE warn
+    class FAIL_BRANCH_LIVE warn
+    class COAST neutral
+    class NOTE neutral
+
+    linkStyle 1 stroke:#c0392b,stroke-dasharray:5 5
+    linkStyle 4 stroke:#c0392b,stroke-dasharray:5 5

@@ -1,0 +1,93 @@
+%% Level 1 — Disk-level artefact flow (producer → consumer).
+%% Source: docs/ARTEFACT_FLOW.md (this diagram is the visual form of that table).
+%% Verified 2026-05-09. Active reference map: REFERENCE_MAP_ODENSE/.
+flowchart LR
+
+    %% ── External producers ────────────────────────────────────
+    subgraph EXT["External producers"]
+        QGIS_TOOL["QGIS + QMetaTiles plugin<br/>(manual workflow)"]
+        LABEL["Hand-labelled<br/>training masks"]
+        NOAA["NOAA WMM2025"]
+        MSFS["MSFS 2020<br/>(SimConnect + screen capture)"]
+    end
+
+    %% ── Reference map artefacts ───────────────────────────────
+    subgraph MAP["REFERENCE_MAP_ODENSE/ — active reference map"]
+        AERIAL[("aerial/16/{x}/{y}.png<br/>(orthophoto tiles)")]
+        PRED[("prediction/16/{x}/{y}.png<br/>(precomputed semantic masks)")]
+        H5[("reference_features.h5<br/>(precomputed SuperPoint features, 3.5 GB)")]
+    end
+
+    %% ── Training artefacts ────────────────────────────────────
+    subgraph TRAIN["SemanticTerrainSegmentationModel/ + SEMANTIC BEFORE/"]
+        WINTER[("SEMANTIC BEFORE/.../best.pth<br/>(Phase 1 winter — frozen 2026-03-06)")]
+        BESTPTH[("best.pth<br/>(active 2026-03-18)")]
+        IPYNB["Semantic_Model_QGIS_8_Class_Rev6.ipynb<br/>(Phase 2 fine-tune)"]
+    end
+
+    %% ── Coefficients ──────────────────────────────────────────
+    WMM[("WMM2025COF/WMM2025.COF")]
+
+    %% ── Code subsystems ───────────────────────────────────────
+    DP["Dataset_Preprocessing/<br/>preprocess_reference --all<br/>(semantic + superpoint)"]
+    RT["Pipeline_3_Rev1/runtime/<br/>run_pipeline.py"]
+    AN["Pipeline_3_Rev1/analysis/ + notebooks/"]
+
+    %% ── Replay-mode inputs (currently mismatched) ─────────────
+    subgraph REPLAY["Logs_Run_20260321_162024/ — replay log (over Vejle, NOT Odense)"]
+        IMU_CSV[("imu_gps_log_*.csv")]
+        LOG_FRAMES[("images_*/frame_*.jpg")]
+    end
+
+    %% ── Outputs ───────────────────────────────────────────────
+    subgraph OUT["Pipeline_3_Rev1/outputs/runs/<run_id>/"]
+        CSV[("results.csv (always)")]
+        META[("run_meta.json (always)")]
+        OPT[("optional (per-flag):<br/>flight_data/ · px4_gps_input.csv ·<br/>analysis_extras.csv · timing_data.csv ·<br/>pipeline_data/frame_NNNN/")]
+        FIG[("outputs/analysis/<run_id>/*.png · *.gif")]
+    end
+
+    %% ── Edges ─────────────────────────────────────────────────
+    QGIS_TOOL -->|"orthophoto tiles"| AERIAL
+    LABEL --> IPYNB
+    WINTER -. "Phase 2 resume<br/>(state_dict only)" .-> IPYNB
+    IPYNB --> BESTPTH
+
+    BESTPTH --> DP
+    AERIAL --> DP
+    DP --> PRED
+    DP --> H5
+
+    BESTPTH --> RT
+    AERIAL --> RT
+    PRED --> RT
+    H5 --> RT
+    NOAA --> WMM
+    WMM --> RT
+
+    MSFS -->|"live frames + IMU"| RT
+    IMU_CSV -. "file mode<br/>(broken-as-configured<br/>vs. Odense)" .-> RT
+    LOG_FRAMES -. "file mode" .-> RT
+
+    RT --> CSV
+    RT --> META
+    RT -.->|"if SAVE_*=True"| OPT
+
+    CSV --> AN
+    OPT --> AN
+    AN --> FIG
+
+    %% ── Styling ───────────────────────────────────────────────
+    classDef warn fill:#fff7e0,stroke:#e07700,stroke-width:1px,stroke-dasharray:3 3;
+    class IMU_CSV warn
+    class LOG_FRAMES warn
+    class REPLAY warn
+
+    classDef frozen fill:#e8e8f0,stroke:#666,stroke-width:1px;
+    class WINTER frozen
+
+    classDef active fill:#e8f5e8,stroke:#2e7d32,stroke-width:1px;
+    class AERIAL active
+    class PRED active
+    class H5 active
+    class BESTPTH active

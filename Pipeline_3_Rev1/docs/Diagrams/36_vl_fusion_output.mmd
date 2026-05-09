@@ -21,6 +21,8 @@ flowchart TD
 
     EKF_UPD["ekf.update_position(lat, lon, R)<br/>Kalman update on d_p_NE"]
 
+    GP8_AUX["**GP8 — live-mode sim-GPS fallback (auxiliary)**<br/>sim_lat = row.latitude · sim_lon = row.longitude<br/>R = 200² = 40 000 m²<br/>only when gate_pass = False<br/>**absent in file mode**<br/>see 37_vl_gp8_disclosure"]
+
     GET["ekf.get_state"]
     SIGMA["pos_sigma<br/>= sqrt max(P[8,8], P[9,9])"]
 
@@ -44,8 +46,13 @@ flowchart TD
 
     AR -->|"R · corrected (lat, lon)"| EKF_UPD
     EKF_UPD --> GET
-    GATE -->|"fail · skip update"| GET
+    GATE -. "fail (live mode)" .-> GP8_AUX
+    GP8_AUX -. "sim · R=200²" .-> EKF_UPD
+    GATE -.->|"fail (file mode) · skip update"| GET
     GET --> SIGMA
+
+    classDef gp8 fill:#fdecea,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 5,color:#7a1f1a;
+    class GP8_AUX gp8
 
     GET --> CSV_OUT
     GET --> PX4_OUT
