@@ -39,7 +39,7 @@ class IMUEstimatorStream:
         self.current_index = 0
 
         # Parse KML into DataFrame
-        from src.io_utils import parse_kml_to_dataframe
+        from ALL_Docs_from_all.old_pipeline.dedode_localization_project.src.io_utils import parse_kml_to_dataframe
         self.results_df = parse_kml_to_dataframe(self.kml_path)
 
         # Build frame-name → row lookup
