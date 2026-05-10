@@ -1,0 +1,151 @@
+python C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\Pipeline_3_Rev1\runtime\run_pipeline.py --source simconnect --run-id live_023_Odense_1ft 
+[run_pipeline] run_id=live_023_Odense_1ft  source=simconnect
+[run_pipeline] output: C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\Pipeline_3_Rev1\outputs\runs\live_023_Odense_1ft
+[SimConnectLiveSource] Connecting to MSFS 2020...
+[SimConnectLiveSource] Connected. Capture region: {'top': 74, 'left': -1920, 'width': 1920, 'height': 1009}
+[run_pipeline] Waiting for first valid SimConnect sample...
+[run_pipeline] WMM2025 dec=4.47°  inc=70.27°
+[run_pipeline] EKF bootstrapped: (55.366790, 10.272927)  yaw=94.9°
+  F   0 | gate=PASS | (55.366849, 10.272619) | 3.1s
+  F   1 | gate=PASS | (55.366870, 10.272541) | 5.3s
+  F   2 | gate=PASS | (55.366595, 10.274712) | 7.5s
+  F   3 | gate=PASS | (55.366385, 10.276772) | 9.8s
+  F   4 | gate=PASS | (55.366171, 10.278983) | 12.2s
+  F   5 | gate=PASS | (55.365956, 10.281367) | 14.3s
+  F   6 | gate=PASS | (55.365771, 10.283382) | 16.1s
+  F   7 | gate=PASS | (55.365628, 10.284980) | 17.8s
+  F   8 | gate=PASS | (55.365503, 10.286881) | 19.9s
+  F   9 | gate=PASS | (55.365341, 10.289101) | 21.9s
+  F  10 | gate=PASS | (55.365191, 10.291136) | 24.0s
+  F  11 | gate=PASS | (55.365031, 10.293311) | 25.9s
+  F  12 | gate=PASS | (55.364902, 10.295052) | 27.5s
+  F  13 | gate=fail | (55.364748, 10.296832) | 29.1s
+  F  14 | gate=fail | (55.364598, 10.298600) | 30.6s
+  F  15 | gate=fail | (55.364478, 10.300032) | 32.0s
+  F  16 | gate=fail | (55.364367, 10.301376) | 33.6s
+  F  17 | gate=PASS | (55.364248, 10.303216) | 35.3s
+  F  18 | gate=PASS | (55.364186, 10.305182) | 36.9s
+  F  19 | gate=PASS | (55.364121, 10.306824) | 38.7s
+  F  20 | gate=PASS | (55.363997, 10.308738) | 40.9s
+  F  21 | gate=PASS | (55.363836, 10.311011) | 42.5s
+  F  22 | gate=PASS | (55.363745, 10.312524) | 44.5s
+  F  23 | gate=PASS | (55.363319, 10.314955) | 46.4s
+  F  24 | gate=PASS | (55.363256, 10.317043) | 48.4s
+  F  25 | gate=PASS | (55.363181, 10.319194) | 50.6s
+  F  26 | gate=PASS | (55.363087, 10.321327) | 52.6s
+  F  27 | gate=PASS | (55.362960, 10.323716) | 54.7s
+  F  28 | gate=PASS | (55.362857, 10.325795) | 56.9s
+  F  29 | gate=PASS | (55.362672, 10.328157) | 59.0s
+  F  30 | gate=PASS | (55.362513, 10.329822) | 61.0s
+  F  31 | gate=PASS | (55.362335, 10.331920) | 63.2s
+  F  32 | gate=PASS | (55.362212, 10.334061) | 65.6s
+  F  33 | gate=PASS | (55.362255, 10.336385) | 67.9s
+  F  34 | gate=PASS | (55.362532, 10.338849) | 69.9s
+  F  35 | gate=PASS | (55.363158, 10.341237) | 72.2s
+  F  36 | gate=PASS | (55.363610, 10.343843) | 74.0s
+  F  37 | gate=PASS | (55.363990, 10.345807) | 76.3s
+  F  38 | gate=PASS | (55.364403, 10.347950) | 78.5s
+  F  39 | gate=PASS | (55.364844, 10.350407) | 80.6s
+  F  40 | gate=PASS | (55.365203, 10.352575) | 83.0s
+  F  41 | gate=PASS | (55.365619, 10.354891) | 85.1s
+  F  42 | gate=PASS | (55.366001, 10.356723) | 87.3s
+  F  43 | gate=PASS | (55.366598, 10.358691) | 89.3s
+  F  44 | gate=PASS | (55.367205, 10.360270) | 91.5s
+  F  45 | gate=PASS | (55.368059, 10.362044) | 93.6s
+  F  46 | gate=PASS | (55.369080, 10.364404) | 95.8s
+  F  47 | gate=PASS | (55.370125, 10.365659) | 97.8s
+  F  48 | gate=PASS | (55.371098, 10.366648) | 100.1s
+  F  49 | gate=PASS | (55.372398, 10.367738) | 102.3s
+  F  50 | gate=PASS | (55.373792, 10.368669) | 104.6s
+  F  51 | gate=PASS | (55.375111, 10.369587) | 107.1s
+  F  52 | gate=PASS | (55.376585, 10.370575) | 109.4s
+  F  53 | gate=PASS | (55.377953, 10.370964) | 111.4s
+  F  54 | gate=PASS | (55.379092, 10.371631) | 113.0s
+  F  55 | gate=PASS | (55.380042, 10.372134) | 115.1s
+  F  56 | gate=PASS | (55.381422, 10.372946) | 117.4s
+  F  57 | gate=PASS | (55.383006, 10.374012) | 119.6s
+  F  58 | gate=PASS | (55.384380, 10.375132) | 121.8s
+  F  59 | gate=PASS | (55.385579, 10.376399) | 123.7s
+  F  60 | gate=PASS | (55.386788, 10.377490) | 125.8s
+  F  61 | gate=PASS | (55.387846, 10.378761) | 128.3s
+  F  62 | gate=PASS | (55.388866, 10.380142) | 130.7s
+  F  63 | gate=PASS | (55.389865, 10.381555) | 133.1s
+  F  64 | gate=PASS | (55.390853, 10.382974) | 135.9s
+  F  65 | gate=PASS | (55.392093, 10.384782) | 138.3s
+  F  66 | gate=PASS | (55.393181, 10.386350) | 140.6s
+  F  67 | gate=fail | (55.394170, 10.387828) | 142.8s
+  F  68 | gate=PASS | (55.395359, 10.389620) | 145.1s
+  F  69 | gate=PASS | (55.396368, 10.391257) | 147.3s
+  F  70 | gate=PASS | (55.397416, 10.393243) | 149.5s
+  F  71 | gate=PASS | (55.398205, 10.394848) | 151.8s
+  F  72 | gate=PASS | (55.399031, 10.396631) | 154.1s
+  F  73 | gate=PASS | (55.399879, 10.398564) | 156.2s
+  F  74 | gate=PASS | (55.400631, 10.400318) | 158.5s
+  F  75 | gate=PASS | (55.401298, 10.401784) | 160.8s
+  F  76 | gate=PASS | (55.402096, 10.403310) | 163.1s
+  F  77 | gate=PASS | (55.402923, 10.404580) | 165.4s
+  F  78 | gate=PASS | (55.404005, 10.405960) | 167.7s
+  F  79 | gate=PASS | (55.405406, 10.407239) | 170.0s
+  F  80 | gate=PASS | (55.406669, 10.408244) | 172.3s
+  F  81 | gate=PASS | (55.408108, 10.408830) | 174.4s
+  F  82 | gate=PASS | (55.409404, 10.409069) | 176.6s
+  F  83 | gate=PASS | (55.410775, 10.408958) | 178.5s
+  F  84 | gate=fail | (55.411867, 10.408642) | 180.8s
+  F  85 | gate=PASS | (55.413239, 10.407934) | 183.2s
+  F  86 | gate=PASS | (55.414620, 10.406802) | 185.7s
+  F  87 | gate=PASS | (55.415805, 10.405599) | 188.2s
+  F  88 | gate=PASS | (55.416980, 10.403761) | 190.2s
+  F  89 | gate=PASS | (55.417752, 10.402225) | 192.5s
+  F  90 | gate=PASS | (55.418390, 10.400275) | 194.6s
+  F  91 | gate=fail | (55.418822, 10.398231) | 196.9s
+  F  92 | gate=PASS | (55.419082, 10.395948) | 199.2s
+  F  93 | gate=fail | (55.419138, 10.393652) | 201.6s
+  F  94 | gate=PASS | (55.418972, 10.391216) | 203.8s
+  F  95 | gate=fail | (55.418531, 10.389021) | 205.8s
+  F  96 | gate=PASS | (55.418256, 10.385780) | 207.9s
+  F  97 | gate=PASS | (55.417692, 10.384010) | 210.2s
+  F  98 | gate=PASS | (55.416995, 10.382542) | 212.5s
+  F  99 | gate=PASS | (55.416353, 10.380494) | 214.6s
+  F 100 | gate=PASS | (55.415712, 10.378374) | 217.1s
+  F 101 | gate=PASS | (55.414714, 10.375576) | 219.6s
+  F 102 | gate=PASS | (55.414240, 10.373635) | 221.9s
+  F 103 | gate=PASS | (55.413120, 10.371328) | 224.2s
+  F 104 | gate=PASS | (55.411961, 10.369819) | 226.8s
+  F 105 | gate=PASS | (55.410603, 10.368245) | 229.3s
+  F 106 | gate=PASS | (55.409394, 10.366949) | 231.5s
+  F 107 | gate=PASS | (55.408808, 10.365134) | 233.6s
+  F 108 | gate=PASS | (55.407642, 10.363961) | 235.8s
+  F 109 | gate=PASS | (55.406679, 10.362408) | 238.2s
+  F 110 | gate=PASS | (55.405481, 10.360386) | 240.4s
+  F 111 | gate=PASS | (55.404260, 10.358786) | 242.6s
+  F 112 | gate=PASS | (55.403172, 10.357301) | 244.8s
+  F 113 | gate=PASS | (55.402094, 10.355601) | 247.2s
+  F 114 | gate=PASS | (55.400712, 10.354640) | 249.2s
+  F 115 | gate=PASS | (55.399580, 10.354139) | 251.6s
+  F 116 | gate=PASS | (55.398225, 10.353773) | 253.8s
+  F 117 | gate=PASS | (55.396752, 10.353879) | 256.1s
+  F 118 | gate=fail | (55.395422, 10.354126) | 258.3s
+  F 119 | gate=PASS | (55.393942, 10.355595) | 260.4s
+  F 120 | gate=PASS | (55.392561, 10.356742) | 262.6s
+  F 121 | gate=PASS | (55.391166, 10.358398) | 264.7s
+  F 122 | gate=fail | (55.390071, 10.359660) | 267.1s
+  F 123 | gate=PASS | (55.388716, 10.360048) | 269.4s
+  F 124 | gate=PASS | (55.387596, 10.361322) | 271.9s
+  F 125 | gate=PASS | (55.386502, 10.363101) | 274.1s
+  F 126 | gate=PASS | (55.385677, 10.364645) | 276.2s
+  F 127 | gate=PASS | (55.384826, 10.366327) | 278.3s
+  F 128 | gate=PASS | (55.383906, 10.368382) | 280.7s
+  F 129 | gate=PASS | (55.382943, 10.370382) | 282.9s
+  F 130 | gate=PASS | (55.382046, 10.372223) | 285.1s
+Traceback (most recent call last):
+  File "C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\Pipeline_3_Rev1\runtime\run_pipeline.py", line 1165, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\Pipeline_3_Rev1\runtime\run_pipeline.py", line 1161, in main
+    run_simconnect_mode(args, run_dir, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline\Pipeline_3_Rev1\runtime\run_pipeline.py", line 890, in run_simconnect_mode
+    and ver_matches >= cfg_r.RELOCALIZATION_VERIFICATION_MIN
+        ^^^^^^^^^^^
+NameError: name 'ver_matches' is not defined
+(.final_Pipeline_venv) PS C:\Users\emilj\Documents\Thesis\All_In_One_Pipeline> 

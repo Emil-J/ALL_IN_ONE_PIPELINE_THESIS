@@ -82,11 +82,12 @@ def pixel_to_latlon_in_metatile(ref_px_x: float,
     xs = [t[0] for t in top3_tiles]
     ys = [t[1] for t in top3_tiles]
     x_min = min(xs)
-    y_min = min(ys)
+    y_max = max(ys)
 
-    # Fractional tile position in TMS grid
+    # Meta-tile canvas is north-up: pixel y=0 is the north boundary of the
+    # topmost tile, which maps to TMS y = y_max+1.
     tile_x_frac = x_min + ref_px_x / tile_px
-    tile_y_frac = y_min + ref_px_y / tile_px
+    tile_y_frac = (y_max + 1) - ref_px_y / tile_px
 
     return tile_to_latlon(tile_x_frac, tile_y_frac, zoom)
 
@@ -99,7 +100,7 @@ def pixel_to_latlon_single_tile(ref_px_x: float,
                                 zoom: int = 16) -> Tuple[float, float]:
     """Convert pixel coords within a single tile to (lat, lon)."""
     tile_x_frac = tile_x + ref_px_x / tile_px
-    tile_y_frac = tile_y + ref_px_y / tile_px
+    tile_y_frac = (tile_y + 1) - ref_px_y / tile_px
     return tile_to_latlon(tile_x_frac, tile_y_frac, zoom)
 
 

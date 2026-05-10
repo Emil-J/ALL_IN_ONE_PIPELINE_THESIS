@@ -149,6 +149,7 @@ PARTICLE_INIT_SPREAD_LOW_CONF = {"position_meters": 200, "heading_degrees": 30}
 # ═══════════════════════════════════════════════════════════════════
 
 FIRST_PASS_SEARCH_RADIUS_M = 500.0
+MAX_TEMPORAL_SEARCH_RADIUS_M = 1500.0
 SECOND_PASS_NEIGHBOURS = 8
 METATILE_TOP_K = 3
 METATILE_MATCH_THRESHOLD = 25  # initial hypothesis — tune from logs
@@ -183,6 +184,41 @@ SEMANTIC_CONFIRM_MIN_PAIRS = 3
 # until timing is verified on the target machine.
 SEMANTIC_PREFILTER_ENABLED = True
 SEMANTIC_PREFILTER_TOP_K = 10
+
+# ═══════════════════════════════════════════════════════════════════
+# RELOCALIZATION (EKF recovery after innovation rejection streak)
+# ═══════════════════════════════════════════════════════════════════
+
+# Minimum consecutive frames with strong visual evidence rejected by innovation gate
+# before a recovery update is attempted.
+RELOCALIZATION_CONSECUTIVE_THRESHOLD = 5
+
+# Visual quality floors for a frame to count as a "relocalization candidate"
+RELOCALIZATION_CSHAPE_MIN = 0.70
+RELOCALIZATION_INLIERS_MIN = 200
+RELOCALIZATION_VERIFICATION_MIN = 100   # meta-tile verification match count
+
+# Recovery EKF update parameters
+# Inflate P[8,8]/P[9,9] to at least this variance before the recovery update,
+# so the Kalman gain is large enough to actually move the state.
+RELOCALIZATION_PRIOR_STD_M = 150.0      # std dev (metres)
+RELOCALIZATION_R_M = 100.0              # std dev for recovery measurement noise (metres)
+
+# Coherence check: max consecutive hop between rejected homography positions
+# expressed as a multiple of (velocity × clamped dt).  Catches random-scatter
+# bad homographies while allowing physically consistent fast-moving positions.
+RELOCALIZATION_COHERENCE_HOP_FACTOR = 5.0
+
+# ═══════════════════════════════════════════════════════════════════
+# LOOK-AHEAD CORRECTION AND EKF MEASUREMENT NOISE
+# ═══════════════════════════════════════════════════════════════════
+
+LOOKAHEAD_M             = 110.0    # camera forward tilt offset correction (metres)
+R_HIGH                  = 30.0**2  # EKF pos variance: high-quality visual match
+R_MED                   = 60.0**2  # EKF pos variance: normal-quality visual match
+R_COLD_START            = 10000.0  # EKF pos variance: cold-start match (100 m std dev)
+TURN_ROLL_THRESHOLD_RAD = 0.35     # ~20° bank — inflate R during turns
+TURN_R_MULTIPLIER       = 2.0      # R inflation factor during turns
 
 # ═══════════════════════════════════════════════════════════════════
 # EVALUATION
@@ -241,7 +277,7 @@ SAVE_TIMING_DATA = False
 # Implies: SAVE_QUERY_FRAMES + SAVE_IMU_ROWS behaviour (saved to pipeline_data/).
 # Timing impact: ~80-150 ms/frame (image encoding + multiple disk writes).
 # Intended for short runs or selected-frame analysis — not full 970-frame runs.
-SAVE_PIPELINE_TRACE = True
+SAVE_PIPELINE_TRACE = False
 
 # ═══════════════════════════════════════════════════════════════════
 # RUNTIME OUTPUT PATHS

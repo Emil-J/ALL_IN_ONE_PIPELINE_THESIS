@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 
 from config import config
-from src.tile_utils import TileLoader
+from src.tile_utils import TileLoader, haversine_distance
 from src.image_utils import load_image
 from src.geometric_matcher import initialize_matcher
 from src.semantic_model import load_semantic_model
@@ -49,14 +49,6 @@ from src.temporal_searcher import TemporalSearcher
 from src.ekf_ins import (ErrorStateEKF, step_ekf, barometric_altitude)
 from src.wmm_declination import get_mag_field
 from runtime.simconnect_adapter import FileSource
-
-# ── algorithm constants ───────────────────────────────────────────────────────
-LOOKAHEAD_M             = 110.0
-R_HIGH                  = 30.0 ** 2
-R_MED                   = 60.0 ** 2
-R_COLD_START            = 10000.0   # 100 m std dev — reduced trust for cold-start match
-TURN_ROLL_THRESHOLD_RAD = 0.35   # ~20° — only inflate R for steep banks
-TURN_R_MULTIPLIER       = 2.0    # gentler de-weighting; circular flight tested OK
 
 # ── CSV column order ──────────────────────────────────────────────────────────
 RESULT_COLUMNS = [
@@ -71,6 +63,10 @@ RESULT_COLUMNS = [
     "meta_tile_verified", "ekf_pos_sigma", "r_used_sqrt",
     "tiles_tested", "verification_matches",
     "inference_ms",
+    "visual_innovation_m", "max_visual_innovation_m", "visual_rejected_reason",
+    "pf_update_source", "search_radius_m", "search_radius_capped",
+    "visual_quality_pass", "ekf_update_applied",
+    "relocalization_candidate", "relocalization_applied",
 ]
 
 # MAVLink GPS_INPUT (MSG 232) columns — written when SAVE_ANALYSIS_DATA=True
@@ -198,7 +194,8 @@ def _build_trace_json(frame_idx: int, ts: float, result: dict,
                        for k in _ekf_keys},
         "ekf_after":  {k: (round(float(ea[k]), 6) if ea.get(k) is not None else None)
                        for k in _ekf_keys},
-        "pf_center": (list(td["pf_center"]) if td.get("pf_center") else None),
+        "pf_center":  (list(td["pf_center"])  if td.get("pf_center")  else None),
+        "ekf_center": (list(td["ekf_center"]) if td.get("ekf_center") else None),
         "pf_state": {
             "n_eff":     result.get("n_eff"),
             "spread_m":  result.get("particle_spread"),
@@ -225,6 +222,15 @@ def _build_trace_json(frame_idx: int, ts: float, result: dict,
         },
         "ekf_pos_sigma_m": result_row.get("ekf_pos_sigma"),
         "r_used_sqrt":     result_row.get("r_used_sqrt"),
+        "visual_innovation_m":      result_row.get("visual_innovation_m"),
+        "max_visual_innovation_m":  result_row.get("max_visual_innovation_m"),
+        "visual_rejected_reason":   result_row.get("visual_rejected_reason", ""),
+        "pf_update_source":         result_row.get("pf_update_source", ""),
+        "search_radius_capped":     bool(result_row.get("search_radius_capped", 0)),
+        "visual_quality_pass":      bool(result_row.get("visual_quality_pass", 0)),
+        "ekf_update_applied":       bool(result_row.get("ekf_update_applied", 0)),
+        "relocalization_candidate": bool(result_row.get("relocalization_candidate", 0)),
+        "relocalization_applied":   bool(result_row.get("relocalization_applied", 0)),
     }
 
 
@@ -284,6 +290,49 @@ def _init_models():
         feature_store.open()
     return semantic_model, matcher, tile_loader, feature_store
 
+def _safe_int(value, default: int = 0) -> int:
+    """Safely convert value to int. Returns default for None/NaN/bad values."""
+    try:
+        if value is None:
+            return default
+        if isinstance(value, float) and math.isnan(value):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_meta_quality(result: dict) -> tuple[bool, int, int]:
+    """
+    Extract meta-tile verification values from a TemporalSearcher result.
+
+    Returns:
+        meta_verified: bool
+        tiles_tested: int
+        verification_matches: int
+
+    This prevents live/file mode from crashing when relocalization logic expects
+    verification values that may be missing or stored under different keys.
+    """
+    meta_info = result.get("meta_tile_info") or {}
+
+    meta_verified_raw = result.get("meta_tile_verified")
+    if meta_verified_raw is None:
+        meta_verified_raw = meta_info.get("verified", False)
+
+    tiles_tested_raw = result.get("tiles_tested")
+    if tiles_tested_raw is None:
+        tiles_tested_raw = meta_info.get("tiles_tested", 0)
+
+    ver_matches_raw = result.get("verification_matches")
+    if ver_matches_raw is None:
+        ver_matches_raw = meta_info.get("verification_matches", 0)
+
+    meta_verified = bool(meta_verified_raw)
+    tiles_tested = _safe_int(tiles_tested_raw, 0)
+    ver_matches = _safe_int(ver_matches_raw, 0)
+
+    return meta_verified, tiles_tested, ver_matches
 
 def _init_ekf(raw_df: pd.DataFrame, start_row: int):
     """Warm up a live EKF through start_row."""
@@ -307,7 +356,9 @@ def _init_ekf(raw_df: pd.DataFrame, start_row: int):
 
 def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
                        raw_df, ekf, prev_ts_ekf, searcher,
-                       frame_capture_ts=None) -> tuple:
+                       frame_capture_ts=None,
+                       recovery_state=None,
+                       prev_frame_ts=None) -> tuple:
     """
     Returns (query_frame, row_dict, final_lat, final_lon, prev_ts_ekf_new,
              result_row_dict, result_dict, gps_estimate_ts).
@@ -332,7 +383,7 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
         "pos_sigma":     math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9])),
         "heading_sigma": 15.0,
         "velocity_mps":  vel,
-        "gyro_z_dps":    row_dict.get("gyro_z", 0.0) * (180.0 / math.pi),
+        "gyro_z_dps":    row_dict.get("gyro_y", 0.0) * (180.0 / math.pi),
         "pitch":         row_dict.get("pitch", 0.0),
         "roll":          row_dict.get("bank", 0.0),
     }
@@ -348,20 +399,30 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
     cs            = vq.get("CShape", 0.0)
     ni            = vq.get("inliers", 0)
     sem_conf      = result.get("semantic_confidence") or 0.5
-    meta_verified = bool(result.get("meta_tile_verified") or False)
+    meta_verified, tiles_tested, ver_matches = _extract_meta_quality(result)
     search_time   = result.get("search_time", 0.0)
-    tiles_tested  = result.get("tiles_tested", 0)
-    ver_matches   = result.get("verification_matches", 0)
+
+    result["meta_tile_verified"] = meta_verified
+    result["tiles_tested"] = tiles_tested
+    result["verification_matches"] = ver_matches
+
+    # Snapshot visual quality gate result BEFORE innovation gate can override it.
+    # True = visual localisation itself succeeded (CShape + inliers + homo_position);
+    # does NOT reflect EKF innovation acceptance.
+    visual_quality_pass = gate_pass
 
     # Lookahead correction — scale by cos(bank) because during a banked turn
     # the camera's forward component decreases, reducing the ground footprint offset.
     homo_lat_raw = homo_lon_raw = None
     homo_corr_lat = homo_corr_lon = None
+    visual_innovation_m = None
+    max_innovation_m = None
+    visual_rejected_reason = ""
     if homo_pos is not None:
         homo_lat_raw, homo_lon_raw = homo_pos
-        if LOOKAHEAD_M > 0:
+        if config.LOOKAHEAD_M > 0:
             h_rad = math.radians(ekf_yaw)
-            effective_lookahead = LOOKAHEAD_M * math.cos(bank_rad)
+            effective_lookahead = config.LOOKAHEAD_M * math.cos(bank_rad)
             corr_north = -effective_lookahead * math.cos(h_rad)
             corr_east  = -effective_lookahead * math.sin(h_rad)
             homo_corr_lat = (homo_lat_raw
@@ -371,19 +432,102 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
                                             * math.cos(math.radians(homo_lat_raw))))
             homo_pos = (homo_corr_lat, homo_corr_lon)
 
+        # Innovation gate: reject if corrected position is implausibly far from EKF.
+        # dt clamped to [0.5, 4.0] s — prevents both over-rejection (stale 1 s floor)
+        # and over-permissiveness (pauses or stalls producing very large dt).
+        visual_innovation_m = haversine_distance(
+            homo_pos[0], homo_pos[1], ekf_lat, ekf_lon)
+        pos_sigma_now = math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9]))
+        dt_gate = min(max((ts - prev_frame_ts) if prev_frame_ts is not None else 1.0,
+                          0.5), 4.0)
+        max_innovation_m = max(150.0, 3.0 * pos_sigma_now + vel * dt_gate + 50.0)
+        if gate_pass and visual_innovation_m > max_innovation_m:
+            gate_pass = False
+            visual_rejected_reason = "innovation_too_large"
+
+    # ── Relocalization: recover EKF after streak of strong innovation rejections ──
+    # When the EKF has drifted far enough that its covariance no longer reflects the
+    # true uncertainty, visually strong frames are rejected even though the homography
+    # is correct.  After CONSECUTIVE_THRESHOLD such frames with coherent positions,
+    # inflate P and apply a recovery update so the EKF can converge again.
+    relocalization_candidate = False
+    relocalization_applied = False
+    if recovery_state is not None:
+        cfg_r = searcher.cfg
+        if (not gate_pass
+                and visual_rejected_reason == "innovation_too_large"
+                and homo_pos is not None):
+            relocalization_candidate = (
+                cs >= cfg_r.RELOCALIZATION_CSHAPE_MIN
+                and ni >= cfg_r.RELOCALIZATION_INLIERS_MIN
+                and meta_verified
+                and ver_matches >= cfg_r.RELOCALIZATION_VERIFICATION_MIN
+            )
+            if relocalization_candidate:
+                recovery_state["consecutive"] += 1
+                recovery_state["positions"].append(homo_pos)
+                if len(recovery_state["positions"]) > 5:
+                    recovery_state["positions"].pop(0)
+            else:
+                recovery_state["consecutive"] = 0
+                recovery_state["positions"].clear()
+
+            if (relocalization_candidate
+                    and recovery_state["consecutive"] >= cfg_r.RELOCALIZATION_CONSECUTIVE_THRESHOLD
+                    and len(recovery_state["positions"]) >= 3):
+                recent = recovery_state["positions"][-3:]
+                dt_hop = min(max((ts - prev_frame_ts) if prev_frame_ts is not None else 1.0,
+                                 0.5), 4.0)
+                coherent = all(
+                    haversine_distance(recent[k][0], recent[k][1],
+                                       recent[k + 1][0], recent[k + 1][1])
+                    <= cfg_r.RELOCALIZATION_COHERENCE_HOP_FACTOR * vel * dt_hop
+                    for k in range(len(recent) - 1)
+                )
+                if coherent:
+                    ekf.P[8, 8] = max(ekf.P[8, 8],
+                                      cfg_r.RELOCALIZATION_PRIOR_STD_M ** 2)
+                    ekf.P[9, 9] = max(ekf.P[9, 9],
+                                      cfg_r.RELOCALIZATION_PRIOR_STD_M ** 2)
+                    ekf.update_position(homo_pos[0], homo_pos[1],
+                                        R_pos_m2=cfg_r.RELOCALIZATION_R_M ** 2)
+                    gate_pass = True
+                    visual_rejected_reason = "relocalization_applied"
+                    relocalization_applied = True
+                    recovery_state["consecutive"] = 0
+                    recovery_state["positions"].clear()
+                    searcher.frame_count = 0   # force PF cold-start on next frame
+        elif gate_pass:
+            recovery_state["consecutive"] = 0
+            recovery_state["positions"].clear()
+
+    result["gate_pass"] = gate_pass
+    result["visual_rejected_reason"] = visual_rejected_reason
+    result["visual_innovation_m"] = visual_innovation_m
+    result["max_visual_innovation_m"] = max_innovation_m
+    result["relocalization_candidate"] = relocalization_candidate
+    result["relocalization_applied"] = relocalization_applied
+
     method_str = result.get("method", "")
     r_used = None
+    ekf_update_applied = False
     if gate_pass and homo_pos is not None:
-        if method_str == "cold_start":
-            r_used = R_COLD_START
+        if relocalization_applied:
+            # EKF already updated above with RELOCALIZATION_R_M; record for logging.
+            r_used = searcher.cfg.RELOCALIZATION_R_M ** 2
+            ekf_update_applied = True
         else:
-            r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
-        if bank_rad > TURN_ROLL_THRESHOLD_RAD:
-            r_used *= TURN_R_MULTIPLIER
-        if not meta_verified:
-            r_used *= 2.0
-        r_used *= max(0.5, 2.0 - 1.5 * sem_conf)
-        ekf.update_position(homo_pos[0], homo_pos[1], R_pos_m2=r_used)
+            if method_str == "cold_start":
+                r_used = config.R_COLD_START
+            else:
+                r_used = config.R_HIGH if (cs > 0.5 and ni > 100) else config.R_MED
+            if bank_rad > config.TURN_ROLL_THRESHOLD_RAD:
+                r_used *= config.TURN_R_MULTIPLIER
+            if not meta_verified:
+                r_used *= 2.0
+            r_used *= max(0.5, 2.0 - 1.5 * sem_conf)
+            ekf.update_position(homo_pos[0], homo_pos[1], R_pos_m2=r_used)
+            ekf_update_applied = True
 
     final = ekf.get_state()
     final_lat, final_lon = final["latitude"], final["longitude"]
@@ -425,6 +569,16 @@ def _process_one_frame(frame_idx, csv_idx, ts, frame_path,
         "tiles_tested":       tiles_tested,
         "verification_matches": ver_matches,
         "inference_ms":       None,   # file mode has no real-time capture latency
+        "visual_innovation_m": round(visual_innovation_m, 1) if visual_innovation_m is not None else None,
+        "max_visual_innovation_m": round(max_innovation_m, 1) if max_innovation_m is not None else None,
+        "visual_rejected_reason": visual_rejected_reason,
+        "pf_update_source":   result.get("pf_update_source", ""),
+        "search_radius_m":    round(result.get("search_radius_m") or 0.0, 1) if result.get("search_radius_m") is not None else None,
+        "search_radius_capped": int(bool(result.get("search_radius_capped", False))),
+        "visual_quality_pass":      int(visual_quality_pass),
+        "ekf_update_applied":       int(ekf_update_applied),
+        "relocalization_candidate": int(relocalization_candidate),
+        "relocalization_applied":   int(relocalization_applied),
     }
     return (query_frame, row_dict, final_lat, final_lon,
             prev_ts_ekf_new, result_row, result, gps_estimate_ts)
@@ -456,6 +610,8 @@ def run_file_mode(args, run_dir: Path, run_id: str):
     t0         = time.perf_counter()
     gate_count = 0
     timing_rows = []
+    recovery_state = {"consecutive": 0, "positions": []}
+    prev_frame_ts  = None
 
     # Open optional extra output files
     _px4_f = _extras_f = _px4_w = _extras_w = None
@@ -478,7 +634,10 @@ def run_file_mode(args, run_dir: Path, run_id: str):
                  prev_ts_ekf, result_row, result, gps_estimate_ts) = _process_one_frame(
                     i, csv_idx, ts, frame_path,
                     raw_df, ekf, prev_ts_ekf, searcher,
-                    frame_capture_ts=frame_capture_ts)
+                    frame_capture_ts=frame_capture_ts,
+                    recovery_state=recovery_state,
+                    prev_frame_ts=prev_frame_ts)
+                prev_frame_ts = ts
 
                 writer.writerow(result_row)
                 if result_row["gate_pass"]:
@@ -648,6 +807,8 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
     last_frame_id = None
     last_imu_ts   = None   # guards against repeated step_ekf on same row
     timing_rows   = []
+    recovery_state = {"consecutive": 0, "positions": []}
+    prev_frame_ts  = None
 
     # Open optional extra output files
     _px4_f = _extras_f = _px4_w = _extras_w = None
@@ -699,7 +860,7 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                     "pos_sigma":     math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9])),
                     "heading_sigma": 15.0,
                     "velocity_mps":  vel,
-                    "gyro_z_dps":    row.get("gyro_z", 0.0) * (180.0 / math.pi)
+                    "gyro_z_dps":    row.get("gyro_y", 0.0) * (180.0 / math.pi)
                                      if row else 0.0,
                     "pitch":         row.get("pitch", 0.0) if row else 0.0,
                     "roll":          row.get("bank", 0.0) if row else 0.0,
@@ -715,16 +876,26 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                 cs            = vq.get("CShape", 0.0)
                 ni            = vq.get("inliers", 0)
                 sem_conf      = result.get("semantic_confidence") or 0.5
-                meta_verified = bool(result.get("meta_tile_verified") or False)
+                meta_verified, tiles_tested, ver_matches = _extract_meta_quality(result)
+
+                result["meta_tile_verified"] = meta_verified
+                result["tiles_tested"] = tiles_tested
+                result["verification_matches"] = ver_matches
+
+                # Snapshot visual quality gate result BEFORE innovation gate can override it.
+                visual_quality_pass = gate_pass
 
                 homo_lat_raw = homo_lon_raw = homo_corr_lat = homo_corr_lon = None
                 r_used = None
+                visual_innovation_m = None
+                max_innovation_m = None
+                visual_rejected_reason = ""
                 bank_rad = abs(imu_data["roll"])
 
                 if homo_pos is not None:
                     homo_lat_raw, homo_lon_raw = homo_pos
                     h_rad = math.radians(ekf_yaw)
-                    effective_lookahead = LOOKAHEAD_M * math.cos(bank_rad)
+                    effective_lookahead = config.LOOKAHEAD_M * math.cos(bank_rad)
                     corr_north = -effective_lookahead * math.cos(h_rad)
                     corr_east  = -effective_lookahead * math.sin(h_rad)
                     homo_corr_lat = (homo_lat_raw
@@ -734,19 +905,99 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                                                     * math.cos(math.radians(homo_lat_raw))))
                     homo_pos = (homo_corr_lat, homo_corr_lon)
 
-                    sc_method = result.get("method", "")
-                    if sc_method == "cold_start":
-                        r_used = R_COLD_START
+                    # Innovation gate: reject if corrected position is implausibly far from EKF.
+                    # dt clamped to [0.5, 4.0] s — prevents both over-rejection and
+                    # over-permissiveness from pauses or stalls.
+                    visual_innovation_m = haversine_distance(
+                        homo_pos[0], homo_pos[1], ekf_lat, ekf_lon)
+                    pos_sigma_now = math.sqrt(max(ekf.P[8, 8], ekf.P[9, 9]))
+                    dt_gate = min(max((ts - prev_frame_ts) if prev_frame_ts is not None else 1.0,
+                                      0.5), 4.0)
+                    max_innovation_m = max(150.0, 3.0 * pos_sigma_now + vel * dt_gate + 50.0)
+                    if gate_pass and visual_innovation_m > max_innovation_m:
+                        gate_pass = False
+                        visual_rejected_reason = "innovation_too_large"
+
+                # ── Relocalization ────────────────────────────────────────────────
+                relocalization_candidate = False
+                relocalization_applied = False
+                cfg_r = config
+                if (not gate_pass
+                        and visual_rejected_reason == "innovation_too_large"
+                        and homo_pos is not None):
+                    relocalization_candidate = (
+                        cs >= cfg_r.RELOCALIZATION_CSHAPE_MIN
+                        and ni >= cfg_r.RELOCALIZATION_INLIERS_MIN
+                        and meta_verified
+                        and ver_matches >= cfg_r.RELOCALIZATION_VERIFICATION_MIN
+                    )
+                    if relocalization_candidate:
+                        recovery_state["consecutive"] += 1
+                        recovery_state["positions"].append(homo_pos)
+                        if len(recovery_state["positions"]) > 5:
+                            recovery_state["positions"].pop(0)
                     else:
-                        r_used = R_HIGH if (cs > 0.5 and ni > 100) else R_MED
-                    if bank_rad > TURN_ROLL_THRESHOLD_RAD:
-                        r_used *= TURN_R_MULTIPLIER
-                    if not meta_verified:
-                        r_used *= 2.0
-                    r_used *= max(0.5, 2.0 - 1.5 * sem_conf)
-                    if gate_pass:
+                        recovery_state["consecutive"] = 0
+                        recovery_state["positions"].clear()
+
+                    if (relocalization_candidate
+                            and recovery_state["consecutive"] >= cfg_r.RELOCALIZATION_CONSECUTIVE_THRESHOLD
+                            and len(recovery_state["positions"]) >= 3):
+                        recent = recovery_state["positions"][-3:]
+                        dt_hop = min(max((ts - prev_frame_ts) if prev_frame_ts is not None else 1.0,
+                                         0.5), 4.0)
+                        coherent = all(
+                            haversine_distance(recent[k][0], recent[k][1],
+                                               recent[k + 1][0], recent[k + 1][1])
+                            <= cfg_r.RELOCALIZATION_COHERENCE_HOP_FACTOR * vel * dt_hop
+                            for k in range(len(recent) - 1)
+                        )
+                        if coherent:
+                            ekf.P[8, 8] = max(ekf.P[8, 8],
+                                              cfg_r.RELOCALIZATION_PRIOR_STD_M ** 2)
+                            ekf.P[9, 9] = max(ekf.P[9, 9],
+                                              cfg_r.RELOCALIZATION_PRIOR_STD_M ** 2)
+                            ekf.update_position(homo_pos[0], homo_pos[1],
+                                                R_pos_m2=cfg_r.RELOCALIZATION_R_M ** 2)
+                            gate_pass = True
+                            visual_rejected_reason = "relocalization_applied"
+                            relocalization_applied = True
+                            recovery_state["consecutive"] = 0
+                            recovery_state["positions"].clear()
+                            searcher.frame_count = 0   # force PF cold-start on next frame
+                elif gate_pass:
+                    recovery_state["consecutive"] = 0
+                    recovery_state["positions"].clear()
+
+                prev_frame_ts = ts
+
+                result["gate_pass"] = gate_pass
+                result["visual_rejected_reason"] = visual_rejected_reason
+                result["visual_innovation_m"] = visual_innovation_m
+                result["max_visual_innovation_m"] = max_innovation_m
+                result["relocalization_candidate"] = relocalization_candidate
+                result["relocalization_applied"] = relocalization_applied
+
+                sc_method = result.get("method", "")
+                ekf_update_applied = False
+                if gate_pass and homo_pos is not None:
+                    if relocalization_applied:
+                        r_used = cfg_r.RELOCALIZATION_R_M ** 2
+                        ekf_update_applied = True
+                        gate_count += 1
+                    else:
+                        if sc_method == "cold_start":
+                            r_used = config.R_COLD_START
+                        else:
+                            r_used = config.R_HIGH if (cs > 0.5 and ni > 100) else config.R_MED
+                        if bank_rad > config.TURN_ROLL_THRESHOLD_RAD:
+                            r_used *= config.TURN_R_MULTIPLIER
+                        if not meta_verified:
+                            r_used *= 2.0
+                        r_used *= max(0.5, 2.0 - 1.5 * sem_conf)
                         ekf.update_position(homo_pos[0], homo_pos[1],
                                             R_pos_m2=r_used)
+                        ekf_update_applied = True
                         gate_count += 1
 
                 final = ekf.get_state()
@@ -785,10 +1036,20 @@ def run_simconnect_mode(args, run_dir: Path, run_id: str):
                     "meta_tile_verified": int(meta_verified),
                     "ekf_pos_sigma":      round(pos_sigma, 2),
                     "r_used_sqrt":        round(math.sqrt(r_used), 2) if r_used else None,
-                    "tiles_tested":       result.get("tiles_tested", 0),
-                    "verification_matches": result.get("verification_matches", 0),
+                    "tiles_tested":       tiles_tested,
+                    "verification_matches": ver_matches,
                     "inference_ms":       round(
                         (time.perf_counter() - frame_capture_ts) * 1000.0, 1),
+                    "visual_innovation_m": round(visual_innovation_m, 1) if visual_innovation_m is not None else None,
+                    "max_visual_innovation_m": round(max_innovation_m, 1) if max_innovation_m is not None else None,
+                    "visual_rejected_reason": visual_rejected_reason,
+                    "pf_update_source":   result.get("pf_update_source", ""),
+                    "search_radius_m":    round(result.get("search_radius_m") or 0.0, 1) if result.get("search_radius_m") is not None else None,
+                    "search_radius_capped": int(bool(result.get("search_radius_capped", False))),
+                    "visual_quality_pass":      int(visual_quality_pass),
+                    "ekf_update_applied":       int(ekf_update_applied),
+                    "relocalization_candidate": int(relocalization_candidate),
+                    "relocalization_applied":   int(relocalization_applied),
                 }
                 writer.writerow(result_row)
 

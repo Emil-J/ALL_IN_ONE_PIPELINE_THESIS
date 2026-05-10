@@ -283,6 +283,9 @@ class TemporalSearcher:
         _timing: Dict = {}
         _save_trace = getattr(self.cfg, 'SAVE_PIPELINE_TRACE', False)
         _trace_data: Dict = {}
+        pf_update_source = "none"
+        search_radius_capped = False
+        search_radius_m = self.cfg.FIRST_PASS_SEARCH_RADIUS_M
 
         # Step 1 — Predict particles with IMU
         _t = time.perf_counter()
@@ -298,6 +301,13 @@ class TemporalSearcher:
             region["radius_tiles"] * self.cfg.TILE_SIZE_METERS,
             self.cfg.FIRST_PASS_SEARCH_RADIUS_M,
         )
+        _uncapped_radius = search_radius_m
+        _max_radius = getattr(self.cfg, 'MAX_TEMPORAL_SEARCH_RADIUS_M', 1500.0)
+        if search_radius_m > _max_radius:
+            search_radius_m = _max_radius
+            search_radius_capped = True
+            logger.warning("PF search radius capped at %.0f m (was %.0f m)",
+                           search_radius_m, _uncapped_radius)
 
         # Step 3 — Rotate query by heading for better matching, then two-pass search
         heading_deg = imu_data.get("heading", 0)
@@ -334,7 +344,10 @@ class TemporalSearcher:
         if _save_trace:
             _trace_data['rotation_deg'] = rotation_angle
             _trace_data['search_radius_m'] = search_radius_m
-            _trace_data['pf_center'] = (center_lat, center_lon)
+            pf_lat, pf_lon = tile_to_latlon(
+                region["center"][0], region["center"][1], self.cfg.TMS_ZOOM_LEVEL)
+            _trace_data['pf_center'] = (pf_lat, pf_lon)
+            _trace_data['ekf_center'] = (center_lat, center_lon)
             _trace_data['query_rotated'] = query_for_match
             _trace_data['query_processed'] = query_processed
             _trace_data['query_semantic_map'] = query_semantic_map
@@ -354,6 +367,9 @@ class TemporalSearcher:
             res = self._imu_fallback_result(
                 imu_data, timestamp, elapsed, unc,
                 reason="no_first_pass_tiles")
+            res["pf_update_source"] = pf_update_source
+            res["search_radius_m"] = search_radius_m
+            res["search_radius_capped"] = search_radius_capped
             if _save_timing:
                 res['timing'] = _timing
             if _save_trace:
@@ -413,11 +429,39 @@ class TemporalSearcher:
             _timing['homography_ms'] = (time.perf_counter() - _t_homo) * 1000
 
         # Step 5 — Extract measurements for particle update
-        # Prefer homography sub-tile position when available;
-        # otherwise fall back to tile centers.
+        # Only use homography when it passes the same visual quality gate as the EKF
+        # update — prevents bad homography (few inliers, low CShape) from poisoning PF.
         MAX_SCORE = 50.0  # cap for normalization
-        if homo_tile_pos is not None:
-            # Use homography-derived sub-tile position (high confidence)
+        homo_innovation_m = None
+        max_pf_innovation_m = max(
+            150.0,
+            3.0 * imu_data.get("pos_sigma", 0.0)
+            + imu_data.get("velocity_mps", 0.0) * dt
+            + 50.0
+        )
+        if homo_position is not None:
+            homo_innovation_m = haversine_distance(
+                homo_position[0], homo_position[1],
+                imu_data["lat"], imu_data["lon"]
+            )
+        visual_rejected_reason = ""
+        if (homo_position is not None
+                and homo_innovation_m is not None
+                and homo_innovation_m > max_pf_innovation_m):
+            visual_rejected_reason = "pf_innovation_too_large"
+        pf_innovation_ok = (
+            homo_innovation_m is not None
+            and homo_innovation_m <= max_pf_innovation_m
+        )
+        visual_gate_ok = (
+            visual_quality.get("CShape", 0) > self.cfg.QUALITY_GATE_CSHAPE
+            and visual_quality.get("inliers", 0) > self.cfg.QUALITY_GATE_INLIERS
+            and homo_position is not None
+            and homo_tile_pos is not None
+            and pf_innovation_ok
+        )
+        if visual_gate_ok:
+            pf_update_source = "homography"
             inlier_score = min(visual_quality["inliers"], MAX_SCORE) / MAX_SCORE
             measurements = [
                 {"position": homo_tile_pos,
@@ -425,26 +469,41 @@ class TemporalSearcher:
                  "score": inlier_score}
             ]
         elif meta_result["verified"]:
-            measurements = [
-                {"position": (tx + 0.5, ty + 0.5),
-                 "heading": imu_data["heading"],
-                 "score": min(float(score), MAX_SCORE) / MAX_SCORE}
-                for tx, ty, score in meta_result["top3_tiles"]
-            ]
-        else:
-            # Only top-1 as low-confidence measurement
-            if meta_result["top3_tiles"]:
-                tx, ty, score = meta_result["top3_tiles"][0]
+            plausible = []
+            for tx, ty, score in meta_result["top3_tiles"]:
+                tc_lat, tc_lon = tile_to_latlon(tx + 0.5, ty + 0.5, self.cfg.TMS_ZOOM_LEVEL)
+                d = haversine_distance(tc_lat, tc_lon, imu_data["lat"], imu_data["lon"])
+                if d <= max_pf_innovation_m:
+                    plausible.append((tx, ty, score))
+            if plausible:
+                pf_update_source = "tile_center"
                 measurements = [
                     {"position": (tx + 0.5, ty + 0.5),
                      "heading": imu_data["heading"],
                      "score": min(float(score), MAX_SCORE) / MAX_SCORE * 0.3}
+                    for tx, ty, score in plausible
                 ]
             else:
+                pf_update_source = "none"
                 measurements = []
-
-        # (EKF anchor removed — visual updates now feed back directly into
-        #  the online EKF in the notebook loop.  PF is for search region only.)
+        else:
+            if meta_result["top3_tiles"]:
+                tx, ty, score = meta_result["top3_tiles"][0]
+                tc_lat, tc_lon = tile_to_latlon(tx + 0.5, ty + 0.5, self.cfg.TMS_ZOOM_LEVEL)
+                d = haversine_distance(tc_lat, tc_lon, imu_data["lat"], imu_data["lon"])
+                if d <= max_pf_innovation_m:
+                    pf_update_source = "tile_center"
+                    measurements = [
+                        {"position": (tx + 0.5, ty + 0.5),
+                         "heading": imu_data["heading"],
+                         "score": min(float(score), MAX_SCORE) / MAX_SCORE * 0.3}
+                    ]
+                else:
+                    pf_update_source = "none"
+                    measurements = []
+            else:
+                pf_update_source = "none"
+                measurements = []
 
         # Step 6 — Update particle filter
         _t = time.perf_counter()
@@ -518,6 +577,12 @@ class TemporalSearcher:
                           and homo_position is not None),
             "homo_position": homo_position,
             "pf_position": pf_pos,
+            "pf_update_source": pf_update_source,
+            "search_radius_m": search_radius_m,
+            "search_radius_capped": search_radius_capped,
+            "homo_innovation_m": homo_innovation_m,
+            "max_pf_innovation_m": max_pf_innovation_m,
+            "visual_rejected_reason": visual_rejected_reason,
             "timing": _timing if _save_timing else None,
             "trace_data": _trace_data if _save_trace else None,
         }

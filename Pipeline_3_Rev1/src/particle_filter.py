@@ -71,6 +71,7 @@ class ParticleFilter:
         self.resample_threshold = resample_threshold
         self.divergence_pos_thresh_m = divergence_pos_thresh_m
         self.divergence_weight_thresh = divergence_weight_thresh
+        self.rng = np.random.default_rng()  # Can be changed to self.rng = np.random.default_rng(42) for deterministic runs
 
         # Initialise particles
         self.particles = self._init_particles(
@@ -88,7 +89,7 @@ class ParticleFilter:
         pos_std_tiles = spread["position_meters"] / self._tile_size_m
         hdg_std = spread["heading_degrees"]
 
-        rng = np.random.default_rng()
+        rng = self.rng
         particles = []
         w0 = 1.0 / self.num_particles
         for _ in range(self.num_particles):
@@ -104,7 +105,7 @@ class ParticleFilter:
 
     def predict(self, dt: float, velocity_mps: float, gyro_z_dps: float):
         """Propagate all particles with IMU motion + process noise."""
-        rng = np.random.default_rng()
+        rng = self.rng
         noise_pos_tiles = self.process_noise_pos_m / self._tile_size_m
         for p in self.particles:
             hdg_rad = math.radians(p.heading)
@@ -168,8 +169,7 @@ class ParticleFilter:
 
         weights = np.array([p.weight for p in self.particles])
         cumsum = np.cumsum(weights)
-        rng = np.random.default_rng()
-        r = rng.uniform(0, 1.0 / self.num_particles)
+        r = self.rng.uniform(0, 1.0 / self.num_particles)
         positions = r + np.arange(self.num_particles) / self.num_particles
 
         new_particles = []
@@ -181,9 +181,9 @@ class ParticleFilter:
                 idx += 1
             src = self.particles[idx]
             new_particles.append(Particle(
-                x=src.x + rng.normal(0, jitter_tiles),
-                y=src.y + rng.normal(0, jitter_tiles),
-                heading=(src.heading + rng.normal(0, 2)) % 360,
+                x=src.x + self.rng.normal(0, jitter_tiles),
+                y=src.y + self.rng.normal(0, jitter_tiles),
+                heading=(src.heading + self.rng.normal(0, 2)) % 360,
                 weight=w0,
             ))
         self.particles = new_particles
